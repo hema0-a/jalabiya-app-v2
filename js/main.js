@@ -10,6 +10,7 @@ import { initModal } from './ui/modal.js';
 import { renderSidebar } from './ui/sidebar.js';
 import { renderTopbar } from './ui/topbar.js';
 import { router } from './ui/router.js';
+import { loadTheme } from './core/theme.js';
 
 // استيراد الصفحات
 import { renderDashboardPage } from './pages/dashboard.js';
@@ -25,6 +26,9 @@ async function init() {
   try {
     console.log('📦 تحميل البيانات...');
     db.load();
+
+    console.log('🎨 تحميل الألوان...');
+    loadTheme();
 
     console.log('🎨 تهيئة الواجهة...');
     initToast();
