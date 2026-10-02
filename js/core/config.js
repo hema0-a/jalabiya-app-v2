@@ -21,6 +21,7 @@ export const APP_CONFIG = {
   maxOrders: 50000,
   maxFileSizeKB: 900,
   maxBackups: 7,
+  maxActivityLog: 500,
 };
 
 export const DEFAULT_SETTINGS = {
@@ -36,6 +37,9 @@ export const DEFAULT_SETTINGS = {
     bg: '#F6F1E6',
   },
   darkMode: false,
+  highContrast: false,
+  compactMode: false,
+  clientMode: false,
   fontFamily: 'default',
   fontSize: 1,
   dayOffWeekday: 0,
@@ -48,6 +52,10 @@ export const DEFAULT_SETTINGS = {
   taxDefaultPercent: 0,
   urgentFeeDefaultPercent: 0,
   nextInvoiceNumber: 1001,
+  // إعدادات نظام الإحالات
+  referralRewardPercent: 5,
+  // إعدادات سلة المحذوفات
+  trashRetentionDays: 7,
 };
 
 export const DEFAULT_DB = {
@@ -63,12 +71,16 @@ export const DEFAULT_DB = {
   workerPayments: [],
   
   // المالية الشخصية
-  commitments: [],          // الالتزامات الشهرية (إيجار، أقساط، فواتير)
-  commitmentPayments: [],   // دفعات الالتزامات
-  houseExpenses: [],        // مصاريف البيت
-  personalLoans: [],        // القروض والمديونيات
-  loanPayments: [],         // دفعات القروض
-  savingsGoals: [],         // أهداف الادخار
+  commitments: [],
+  commitmentPayments: [],
+  houseExpenses: [],
+  personalLoans: [],
+  loanPayments: [],
+  savingsGoals: [],
+  
+  // الميزات المتقدمة
+  referrals: [],
+  referralRewards: [],
   
   // متفرقات
   garmentTypes: [],
@@ -186,3 +198,58 @@ export const LOAN_TYPES = [
   { id: 'given', label: 'قرض قدّمته (ليّ)', icon: '📤' },
   { id: 'received', label: 'قرض استلمته (عليّ)', icon: '📥' }
 ];
+
+/* ============================================================
+   أنواع الأنشطة (لسجل النشاط)
+   ============================================================ */
+export const ACTIVITY_TYPES = {
+  CUSTOMER_ADDED: { id: 'customer:added', label: 'إضافة عميل', icon: '👤', color: '#2E7D32' },
+  CUSTOMER_UPDATED: { id: 'customer:updated', label: 'تعديل عميل', icon: '✏️', color: '#F57C00' },
+  CUSTOMER_DELETED: { id: 'customer:deleted', label: 'حذف عميل', icon: '🗑️', color: '#C62828' },
+  ORDER_ADDED: { id: 'order:added', label: 'إضافة طلب', icon: '📋', color: '#2E7D32' },
+  ORDER_UPDATED: { id: 'order:updated', label: 'تعديل طلب', icon: '✏️', color: '#F57C00' },
+  ORDER_DELETED: { id: 'order:deleted', label: 'حذف طلب', icon: '🗑️', color: '#C62828' },
+  PAYMENT_ADDED: { id: 'payment:added', label: 'تسجيل دفعة', icon: '💰', color: '#2E7D32' },
+  PAYMENT_DELETED: { id: 'payment:deleted', label: 'حذف دفعة', icon: '🗑️', color: '#C62828' },
+  EXPENSE_ADDED: { id: 'expense:added', label: 'إضافة مصروف', icon: '💸', color: '#F57C00' },
+  EXPENSE_DELETED: { id: 'expense:deleted', label: 'حذف مصروف', icon: '🗑️', color: '#C62828' },
+  INVENTORY_ADDED: { id: 'inventory:added', label: 'إضافة للمخزون', icon: '📦', color: '#2E7D32' },
+  INVENTORY_UPDATED: { id: 'inventory:updated', label: 'تعديل مخزون', icon: '✏️', color: '#F57C00' },
+  INVENTORY_DELETED: { id: 'inventory:deleted', label: 'حذف من المخزون', icon: '🗑️', color: '#C62828' },
+  WORKER_ADDED: { id: 'worker:added', label: 'إضافة عامل', icon: '👷', color: '#2E7D32' },
+  WORKER_DELETED: { id: 'worker:deleted', label: 'حذف عامل', icon: '🗑️', color: '#C62828' },
+  COMMITMENT_ADDED: { id: 'commitment:added', label: 'إضافة التزام', icon: '💳', color: '#2E7D32' },
+  COMMITMENT_DELETED: { id: 'commitment:deleted', label: 'حذف التزام', icon: '🗑️', color: '#C62828' },
+  LOAN_ADDED: { id: 'loan:added', label: 'إضافة قرض', icon: '💵', color: '#2E7D32' },
+  LOAN_DELETED: { id: 'loan:deleted', label: 'حذف قرض', icon: '🗑️', color: '#C62828' },
+  HOUSE_EXPENSE_ADDED: { id: 'houseExpense:added', label: 'إضافة مصروف بيت', icon: '🏠', color: '#F57C00' },
+  HOUSE_EXPENSE_DELETED: { id: 'houseExpense:deleted', label: 'حذف مصروف بيت', icon: '🗑️', color: '#C62828' },
+  REFERRAL_ADDED: { id: 'referral:added', label: 'إضافة إحالة', icon: '🤝', color: '#2E7D32' },
+  BACKUP_EXPORTED: { id: 'backup:exported', label: 'تصدير نسخة احتياطية', icon: '📤', color: '#1565C0' },
+  BACKUP_IMPORTED: { id: 'backup:imported', label: 'استيراد نسخة احتياطية', icon: '📥', color: '#1565C0' },
+  DATA_RESET: { id: 'data:reset', label: 'حذف جميع البيانات', icon: '⚠️', color: '#C62828' },
+  PIN_CHANGED: { id: 'pin:changed', label: 'تغيير الرقم السري', icon: '🔑', color: '#1565C0' },
+  THEME_CHANGED: { id: 'theme:changed', label: 'تغيير المظهر', icon: '🎨', color: '#F57C00' },
+  TRASH_RESTORED: { id: 'trash:restored', label: 'استرجاع من السلة', icon: '♻️', color: '#2E7D32' },
+  TRASH_DELETED: { id: 'trash:deleted', label: 'حذف نهائي من السلة', icon: '🗑️', color: '#C62828' }
+};
+
+/* ============================================================
+   أنواع العناصر (لسلة المحذوفات)
+   ============================================================ */
+export const TRASH_ITEM_TYPES = {
+  customer: { label: 'عميل', icon: '👤', color: '#2E7D32' },
+  order: { label: 'طلب', icon: '📋', color: '#1565C0' },
+  payment: { label: 'دفعة', icon: '💰', color: '#F57C00' },
+  expense: { label: 'مصروف ورشة', icon: '💸', color: '#C62828' },
+  inventory: { label: 'عنصر مخزون', icon: '📦', color: '#6A1B9A' },
+  worker: { label: 'عامل', icon: '👷', color: '#0277BD' },
+  workerPayment: { label: 'دفعة عامل', icon: '💵', color: '#EF6C00' },
+  commitment: { label: 'التزام', icon: '💳', color: '#2E7D32' },
+  commitmentPayment: { label: 'دفعة التزام', icon: '💵', color: '#EF6C00' },
+  houseExpense: { label: 'مصروف بيت', icon: '🏠', color: '#C62828' },
+  personalLoan: { label: 'قرض', icon: '💵', color: '#6A1B9A' },
+  loanPayment: { label: 'دفعة قرض', icon: '💵', color: '#EF6C00' },
+  savingsGoal: { label: 'هدف ادخار', icon: '🎯', color: '#2E7D32' },
+  referral: { label: 'إحالة', icon: '🤝', color: '#0277BD' }
+};
