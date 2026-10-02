@@ -1,5 +1,5 @@
 /* ============================================================
-   main.js - نقطة الدخول الرئيسية (V2)
+   main.js - نقطة الدخول الرئيسية الشاملة (V2)
    ============================================================ */
 
 import { APP_CONFIG } from './core/config.js';
@@ -19,10 +19,13 @@ import { renderCustomersPage } from './pages/customers.js';
 import { renderOrdersPage } from './pages/orders.js';
 import { renderPaymentsPage } from './pages/payments.js';
 import { renderExpensesPage } from './pages/expenses.js';
-import { renderReportsPage } from './pages/reports.js';
-import { renderSettingsPage } from './pages/settings.js';
 import { renderInventoryPage } from './pages/inventory.js';
 import { renderWorkersPage } from './pages/workers.js';
+import { renderCommitmentsPage } from './pages/commitments.js';
+import { renderHouseExpensesPage } from './pages/house-expenses.js';
+import { renderLoansPage } from './pages/loans.js';
+import { renderReportsPage } from './pages/reports.js';
+import { renderSettingsPage } from './pages/settings.js';
 
 console.log(`🚀 ${APP_CONFIG.name} v${APP_CONFIG.version}`);
 
@@ -41,14 +44,11 @@ async function init() {
     initToast();
     initModal();
 
-    // ============================================================
-    // تهيئة نظام القفل (Auth)
-    // ============================================================
+    // تهيئة نظام القفل
     console.log('🔒 تهيئة نظام القفل...');
     const isUnlocked = initAuth();
 
     if (!isUnlocked) {
-      // التطبيق مقفل → انتظر حدث فتح القفل لبدء التطبيق
       console.log('🔒 التطبيق مقفل. في انتظار الـ PIN...');
       events.on('auth:unlocked', () => {
         console.log('🔓 تم فتح القفل. بدء التطبيق...');
@@ -57,7 +57,6 @@ async function init() {
       return;
     }
 
-    // التطبيق مفتوح من البداية (جلسة سابقة)
     startApp();
   } catch (e) {
     console.error('❌ فشل التهيئة:', e);
@@ -66,12 +65,12 @@ async function init() {
 }
 
 /* ============================================================
-   بدء التطبيق (بعد فتح القفل أو في حال وجود جلسة)
+   بدء التطبيق
    ============================================================ */
 function startApp() {
   renderAppLayout();
 
-  // تسجيل الصفحات في الراوتر
+  // تسجيل جميع الصفحات في الراوتر
   router.register('/dashboard', renderDashboardPage);
   router.register('/customers', renderCustomersPage);
   router.register('/orders', renderOrdersPage);
@@ -79,6 +78,9 @@ function startApp() {
   router.register('/expenses', renderExpensesPage);
   router.register('/inventory', renderInventoryPage);
   router.register('/workers', renderWorkersPage);
+  router.register('/commitments', renderCommitmentsPage);
+  router.register('/house-expenses', renderHouseExpensesPage);
+  router.register('/loans', renderLoansPage);
   router.register('/reports', renderReportsPage);
   router.register('/settings', renderSettingsPage);
 
