@@ -1,21 +1,37 @@
 /* ============================================================
    customers.js - صفحة إدارة العملاء (V2)
-   (تدعم الإضافة، التعديل، والحذف)
+   (تدعم الإضافة، التعديل، الحذف، والبحث)
    ============================================================ */
 
 import * as db from '../core/db.js';
 import { toast } from '../ui/toast.js';
 import { openModal, closeModal } from '../ui/modal.js';
 
+// متغير لتخزين نص البحث
+let searchQuery = '';
+
 export function renderCustomersPage(container) {
-  const customers = db.getCustomers();
+  const allCustomers = db.getCustomers();
   
-  // بناء الهيكل الأساسي للصفحة
+  // 1. تصفية العملاء بناءً على نص البحث
+  const customers = searchQuery
+    ? allCustomers.filter(c => 
+        c.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+        (c.phone && c.phone.includes(searchQuery))
+      )
+    : allCustomers;
+
+  // 2. بناء الهيكل الأساسي للصفحة
   let html = `
     <div class="card">
       <div class="flex-between mb-2">
         <h2 class="card-title" style="margin:0; border:none;">قائمة العملاء</h2>
         <button class="btn btn-primary" id="add-customer-btn">+ إضافة عميل</button>
+      </div>
+      
+      <!-- حقل البحث -->
+      <div class="form-group" style="margin-bottom: 16px;">
+        <input type="text" id="search-input" class="form-control" placeholder="🔍 ابحث بالاسم أو رقم الهاتف..." value="${searchQuery}">
       </div>
   `;
 
@@ -23,7 +39,7 @@ export function renderCustomersPage(container) {
     html += `
       <div class="text-center" style="padding: 40px 10px; color: var(--text-muted);">
         <div style="font-size: 40px; margin-bottom: 10px;">👥</div>
-        <p>لا يوجد عملاء مسجلين حتى الآن.</p>
+        <p>${searchQuery ? 'لا توجد نتائج مطابقة لبحثك.' : 'لا يوجد عملاء مسجلين حتى الآن.'}</p>
       </div>
     `;
   } else {
@@ -78,7 +94,6 @@ export function renderCustomersPage(container) {
 
     const form = document.getElementById('customer-form');
     
-    // حفظ (إضافة أو تعديل)
     form.addEventListener('submit', (e) => {
       e.preventDefault();
       const name = document.getElementById('customer-name').value.trim();
@@ -98,13 +113,12 @@ export function renderCustomersPage(container) {
       }
       
       closeModal();
+      // الحفاظ على نص البحث عند إعادة العرض
       renderCustomersPage(container);
     });
 
-    // إلغاء
     document.getElementById('cancel-btn').addEventListener('click', closeModal);
 
-    // حذف (في حال التعديل فقط)
     if (isEdit) {
       document.getElementById('delete-customer-btn').addEventListener('click', () => {
         if (confirm('هل أنت متأكد من حذف هذا العميل؟')) {
@@ -123,6 +137,22 @@ export function renderCustomersPage(container) {
   const addBtn = container.querySelector('#add-customer-btn');
   if (addBtn) {
     addBtn.addEventListener('click', () => openCustomerModal(null));
+  }
+
+  // حقل البحث (يتم التنفيذ أثناء الكتابة)
+  const searchInput = container.querySelector('#search-input');
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      searchQuery = e.target.value;
+      // إعادة عرض الصفحة مع الحفاظ على التركيز على حقل البحث
+      const pos = e.target.selectionStart;
+      renderCustomersPage(container);
+      const newInput = container.querySelector('#search-input');
+      if (newInput) {
+        newInput.focus();
+        newInput.setSelectionRange(pos, pos);
+      }
+    });
   }
 
   // النقر على عميل للتعديل
