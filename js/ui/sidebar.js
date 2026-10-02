@@ -59,12 +59,13 @@ export function renderSidebar() {
       ]
     },
     {
-      title: 'التقارير والإعدادات',
-      items: [
-        { path: '/reports', label: 'التقارير', icon: '📊' },
-        { path: '/settings', label: 'الإعدادات', icon: '⚙️' }
-      ]
-    }
+  title: 'التحليل والتقارير',
+  items: [
+    { path: '/kpis', label: 'مؤشرات الأداء', icon: '📊' },
+    { path: '/reports', label: 'التقارير', icon: '📈' },
+    { path: '/settings', label: 'الإعدادات', icon: '⚙️' }
+  ]
+}
   ];
 
   sidebar.innerHTML = `
