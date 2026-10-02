@@ -19,7 +19,12 @@ export function load() {
     const saved = storage.loadDB();
     if (saved && typeof saved === 'object') {
       state = mergeWithDefaults(saved);
-      console.log('✅ DB loaded:', { customers: state.customers.length, orders: state.orders.length, payments: state.payments.length });
+      console.log('✅ DB loaded:', { 
+        customers: state.customers.length, 
+        orders: state.orders.length, 
+        payments: state.payments.length,
+        expenses: state.expenses.length 
+      });
     } else {
       state = deepClone(DEFAULT_DB);
       console.log('📭 DB empty — using defaults');
@@ -180,6 +185,51 @@ export function deletePayment(id) {
   const [payment] = state.payments.splice(idx, 1);
   state.trash.push({ id: uid(), type: 'payment', data: payment, deletedAt: today() });
   save();
+  return true;
+}
+
+/* ============================================================
+   قسم المصروفات (Expenses)
+   ============================================================ */
+
+export function getExpenses() { 
+  return state.expenses; 
+}
+
+export function getExpense(id) {
+  if (!id) return null;
+  return state.expenses.find(e => e.id === id) || null;
+}
+
+export function addExpense(expense) {
+  const newExpense = { 
+    ...expense, 
+    id: expense.id || uid(), 
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  state.expenses.push(newExpense);
+  save();
+  events.emit('expense:added', newExpense);
+  return newExpense;
+}
+
+export function updateExpense(id, updates) {
+  const expense = getExpense(id);
+  if (!expense) return null;
+  Object.assign(expense, updates, { updatedAt: Date.now() });
+  save();
+  events.emit('expense:updated', expense);
+  return expense;
+}
+
+export function deleteExpense(id) {
+  const idx = state.expenses.findIndex(e => e.id === id);
+  if (idx === -1) return false;
+  const [expense] = state.expenses.splice(idx, 1);
+  state.trash.push({ id: uid(), type: 'expense', data: expense, deletedAt: today() });
+  save();
+  events.emit('expense:deleted', expense);
   return true;
 }
 
