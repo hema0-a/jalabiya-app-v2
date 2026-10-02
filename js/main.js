@@ -2,6 +2,7 @@
    main.js - نقطة الدخول الرئيسية (V2)
    ============================================================ */
 
+import { renderPaymentsPage } from './pages/payments.js';
 import { renderOrdersPage } from './pages/orders.js';
 import { APP_CONFIG } from './core/config.js';
 import * as db from './core/db.js';
@@ -30,6 +31,7 @@ async function init() {
     router.register('/dashboard', renderDashboardPage);
      router.register('/customers', renderCustomersPage);
      router.register('/orders', renderOrdersPage);
+     router.register('/payments', renderPaymentsPage);
     router.register('/404', render404Page);
 
     // تشغيل الراوتر ليبدأ عرض الصفحات
