@@ -7,7 +7,7 @@ import * as db from './core/db.js';
 import { events, EVENTS } from './core/events.js';
 import { initToast } from './ui/toast.js';
 import { initModal } from './ui/modal.js';
-import { renderSidebar } from './ui/sidebar.js';
+import { renderSidebar, closeSidebar } from './ui/sidebar.js';
 import { renderTopbar } from './ui/topbar.js';
 import { router } from './ui/router.js';
 import { loadTheme } from './core/theme.js';
@@ -18,9 +18,11 @@ import { renderDashboardPage } from './pages/dashboard.js';
 import { renderCustomersPage } from './pages/customers.js';
 import { renderOrdersPage } from './pages/orders.js';
 import { renderPaymentsPage } from './pages/payments.js';
+import { renderExpensesPage } from './pages/expenses.js';
 import { renderReportsPage } from './pages/reports.js';
 import { renderSettingsPage } from './pages/settings.js';
-import { renderExpensesPage } from './pages/expenses.js';
+import { renderInventoryPage } from './pages/inventory.js';
+import { renderWorkersPage } from './pages/workers.js';
 
 console.log(`🚀 ${APP_CONFIG.name} v${APP_CONFIG.version}`);
 
@@ -75,6 +77,8 @@ function startApp() {
   router.register('/orders', renderOrdersPage);
   router.register('/payments', renderPaymentsPage);
   router.register('/expenses', renderExpensesPage);
+  router.register('/inventory', renderInventoryPage);
+  router.register('/workers', renderWorkersPage);
   router.register('/reports', renderReportsPage);
   router.register('/settings', renderSettingsPage);
 
@@ -83,6 +87,11 @@ function startApp() {
 
   // بدء مؤقت القفل التلقائي
   startIdleTimer();
+
+  // إغلاق القائمة الجانبية عند تغيير الصفحة (للجوال)
+  events.on(EVENTS.PAGE_CHANGED, () => {
+    closeSidebar();
+  });
 
   console.log('✅ التطبيق جاهز');
 }
