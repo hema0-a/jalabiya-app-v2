@@ -1,6 +1,6 @@
 /* ============================================================
    orders.js - صفحة إدارة الطلبات (V2)
-   (تدعم الإضافة، التعديل، والحذف)
+   (تدعم الإضافة، التعديل، الحذف، والبحث)
    ============================================================ */
 
 import * as db from '../core/db.js';
@@ -8,9 +8,22 @@ import { toast } from '../ui/toast.js';
 import { openModal, closeModal } from '../ui/modal.js';
 import { today, money } from '../core/utils.js';
 
+// متغير لتخزين نص البحث
+let searchQuery = '';
+
 export function renderOrdersPage(container) {
-  const orders = db.getOrders();
+  const allOrders = db.getOrders();
   const customers = db.getCustomers();
+
+  // 1. تصفية الطلبات بناءً على نص البحث (اسم العميل أو نوع الجلابية)
+  const orders = searchQuery
+    ? allOrders.filter(o => {
+        const customer = customers.find(c => c.id === o.customerId);
+        const custName = customer ? customer.name : '';
+        return custName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+               (o.garmentType && o.garmentType.toLowerCase().includes(searchQuery.toLowerCase()));
+      })
+    : allOrders;
 
   let html = `
     <div class="card">
@@ -18,13 +31,18 @@ export function renderOrdersPage(container) {
         <h2 class="card-title" style="margin:0; border:none;">قائمة الطلبات</h2>
         <button class="btn btn-primary" id="add-order-btn">+ إضافة طلب</button>
       </div>
+      
+      <!-- حقل البحث -->
+      <div class="form-group" style="margin-bottom: 16px;">
+        <input type="text" id="search-order-input" class="form-control" placeholder="🔍 ابحث باسم العميل أو نوع الجلابية..." value="${searchQuery}">
+      </div>
   `;
 
   if (orders.length === 0) {
     html += `
       <div class="text-center" style="padding: 40px 10px; color: var(--text-muted);">
         <div style="font-size: 40px; margin-bottom: 10px;">📋</div>
-        <p>لا يوجد طلبات مسجلة حتى الآن.</p>
+        <p>${searchQuery ? 'لا توجد نتائج مطابقة لبحثك.' : 'لا يوجد طلبات مسجلة حتى الآن.'}</p>
       </div>
     `;
   } else {
@@ -149,11 +167,29 @@ export function renderOrdersPage(container) {
   }
 
   // ===== ربط الأحداث =====
+  
+  // زر الإضافة
   const addBtn = container.querySelector('#add-order-btn');
   if (addBtn) {
     addBtn.addEventListener('click', () => openOrderModal(null));
   }
 
+  // حقل البحث
+  const searchInput = container.querySelector('#search-order-input');
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      searchQuery = e.target.value;
+      const pos = e.target.selectionStart;
+      renderOrdersPage(container);
+      const newInput = container.querySelector('#search-order-input');
+      if (newInput) {
+        newInput.focus();
+        newInput.setSelectionRange(pos, pos);
+      }
+    });
+  }
+
+  // النقر على طلب للتعديل
   container.querySelectorAll('.order-item').forEach(item => {
     item.addEventListener('click', () => {
       const id = item.dataset.id;
