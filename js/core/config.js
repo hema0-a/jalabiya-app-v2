@@ -20,6 +20,7 @@ export const APP_CONFIG = {
   maxCustomers: 10000,
   maxOrders: 50000,
   maxFileSizeKB: 900,
+  maxPortfolioImageKB: 500,
   maxBackups: 7,
   maxActivityLog: 500,
 };
@@ -52,10 +53,16 @@ export const DEFAULT_SETTINGS = {
   taxDefaultPercent: 0,
   urgentFeeDefaultPercent: 0,
   nextInvoiceNumber: 1001,
-  // إعدادات نظام الإحالات
+  // نظام الإحالات
   referralRewardPercent: 5,
-  // إعدادات سلة المحذوفات
+  // سلة المحذوفات
   trashRetentionDays: 7,
+  // الحد اليومي للطلبات (جديد)
+  dailyOrderLimit: 700,
+  // الحد الأقصى للطلبات اليومية (عدد)
+  dailyOrderCount: 5,
+  // تذكير المواعيد
+  reminderDaysBefore: 1,
 };
 
 export const DEFAULT_DB = {
@@ -81,6 +88,7 @@ export const DEFAULT_DB = {
   // الميزات المتقدمة
   referrals: [],
   referralRewards: [],
+  portfolio: [],       // معرض الأعمال (جديد)
   
   // متفرقات
   garmentTypes: [],
@@ -200,6 +208,20 @@ export const LOAN_TYPES = [
 ];
 
 /* ============================================================
+   تصنيفات معرض الأعمال
+   ============================================================ */
+export const PORTFOLIO_CATEGORIES = [
+  { id: 'men', label: 'جلابيات رجالي', icon: '👔' },
+  { id: 'women', label: 'جلابيات نسائي', icon: '👗' },
+  { id: 'kids', label: 'جلابيات أطفال', icon: '🧒' },
+  { id: 'embroidery', label: 'تطريز مميز', icon: '🪡' },
+  { id: 'summer', label: 'صيفي', icon: '☀️' },
+  { id: 'winter', label: 'شتوي', icon: '❄️' },
+  { id: 'wedding', label: 'أفراح ومناسبات', icon: '💍' },
+  { id: 'other', label: 'أخرى', icon: '📷' }
+];
+
+/* ============================================================
    أنواع الأنشطة (لسجل النشاط)
    ============================================================ */
 export const ACTIVITY_TYPES = {
@@ -225,6 +247,8 @@ export const ACTIVITY_TYPES = {
   HOUSE_EXPENSE_ADDED: { id: 'houseExpense:added', label: 'إضافة مصروف بيت', icon: '🏠', color: '#F57C00' },
   HOUSE_EXPENSE_DELETED: { id: 'houseExpense:deleted', label: 'حذف مصروف بيت', icon: '🗑️', color: '#C62828' },
   REFERRAL_ADDED: { id: 'referral:added', label: 'إضافة إحالة', icon: '🤝', color: '#2E7D32' },
+  PORTFOLIO_ADDED: { id: 'portfolio:added', label: 'إضافة صورة للمعرض', icon: '📸', color: '#2E7D32' },
+  PORTFOLIO_DELETED: { id: 'portfolio:deleted', label: 'حذف صورة من المعرض', icon: '🗑️', color: '#C62828' },
   BACKUP_EXPORTED: { id: 'backup:exported', label: 'تصدير نسخة احتياطية', icon: '📤', color: '#1565C0' },
   BACKUP_IMPORTED: { id: 'backup:imported', label: 'استيراد نسخة احتياطية', icon: '📥', color: '#1565C0' },
   DATA_RESET: { id: 'data:reset', label: 'حذف جميع البيانات', icon: '⚠️', color: '#C62828' },
@@ -251,5 +275,6 @@ export const TRASH_ITEM_TYPES = {
   personalLoan: { label: 'قرض', icon: '💵', color: '#6A1B9A' },
   loanPayment: { label: 'دفعة قرض', icon: '💵', color: '#EF6C00' },
   savingsGoal: { label: 'هدف ادخار', icon: '🎯', color: '#2E7D32' },
-  referral: { label: 'إحالة', icon: '🤝', color: '#0277BD' }
+  referral: { label: 'إحالة', icon: '🤝', color: '#0277BD' },
+  portfolio: { label: 'صورة معرض', icon: '📸', color: '#6A1B9A' }
 };
