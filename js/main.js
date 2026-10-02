@@ -2,7 +2,6 @@
    main.js - نقطة الدخول الرئيسية (V2)
    ============================================================ */
 
-import { renderReportsPage } from './pages/reports.js';
 import { APP_CONFIG } from './core/config.js';
 import * as db from './core/db.js';
 import { events, EVENTS } from './core/events.js';
@@ -17,6 +16,8 @@ import { renderDashboardPage } from './pages/dashboard.js';
 import { renderCustomersPage } from './pages/customers.js';
 import { renderOrdersPage } from './pages/orders.js';
 import { renderPaymentsPage } from './pages/payments.js';
+import { renderReportsPage } from './pages/reports.js';
+import { renderSettingsPage } from './pages/settings.js';
 
 console.log(`🚀 ${APP_CONFIG.name} v${APP_CONFIG.version}`);
 
@@ -36,7 +37,8 @@ async function init() {
     router.register('/customers', renderCustomersPage);
     router.register('/orders', renderOrdersPage);
     router.register('/payments', renderPaymentsPage);
-     router.register('/reports', renderReportsPage);
+    router.register('/reports', renderReportsPage);
+    router.register('/settings', renderSettingsPage);
 
     // تشغيل الراوتر
     router.init('.main-content');
