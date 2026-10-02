@@ -25,6 +25,21 @@ export const APP_CONFIG = {
   maxActivityLog: 500,
 };
 
+/* ============================================================
+   المقاسات القياسية الافتراضية
+   (يمكن للمستخدم تعديلها من الإعدادات)
+   ============================================================ */
+export const DEFAULT_MEASUREMENT_FIELDS = [
+  { id: 'shoulder', label: 'الكتف', enabled: true },
+  { id: 'chest', label: 'الصدر', enabled: true },
+  { id: 'waist', label: 'الوسط', enabled: true },
+  { id: 'length', label: 'الطول', enabled: true },
+  { id: 'sleeve', label: 'طول الكم', enabled: true },
+  { id: 'neck', label: 'الرقبة', enabled: true },
+  { id: 'bottom', label: 'الوسع (أسفل)', enabled: true },
+  { id: 'hip', label: 'الأرداف', enabled: true }
+];
+
 export const DEFAULT_SETTINGS = {
   workshopName: 'ورشة تفصيل الجلابيب',
   ownerName: '',
@@ -53,16 +68,13 @@ export const DEFAULT_SETTINGS = {
   taxDefaultPercent: 0,
   urgentFeeDefaultPercent: 0,
   nextInvoiceNumber: 1001,
-  // نظام الإحالات
   referralRewardPercent: 5,
-  // سلة المحذوفات
   trashRetentionDays: 7,
-  // الحد اليومي للطلبات (جديد)
   dailyOrderLimit: 700,
-  // الحد الأقصى للطلبات اليومية (عدد)
   dailyOrderCount: 5,
-  // تذكير المواعيد
   reminderDaysBefore: 1,
+  // ===== جديد: المقاسات القابلة للتخصيص =====
+  customMeasurementFields: DEFAULT_MEASUREMENT_FIELDS,
 };
 
 export const DEFAULT_DB = {
@@ -88,10 +100,12 @@ export const DEFAULT_DB = {
   // الميزات المتقدمة
   referrals: [],
   referralRewards: [],
-  portfolio: [],       // معرض الأعمال (جديد)
+  portfolio: [],
+  
+  // ===== جديد: أنواع الجلابيات مع الأسعار =====
+  garmentTypes: [],
   
   // متفرقات
-  garmentTypes: [],
   holidays: [],
   occasions: [],
   activityLog: [],
@@ -158,7 +172,7 @@ export const EXPENSE_CATEGORIES = [
 ];
 
 /* ============================================================
-   تصنيفات الالتزامات الشخصية
+   تصنيفات الالتزامات
    ============================================================ */
 export const COMMITMENT_CATEGORIES = [
   { id: 'rent', label: 'إيجار', icon: '🏠' },
@@ -171,9 +185,6 @@ export const COMMITMENT_CATEGORIES = [
   { id: 'other', label: 'أخرى', icon: '📌' }
 ];
 
-/* ============================================================
-   دورية الالتزامات
-   ============================================================ */
 export const COMMITMENT_FREQUENCIES = [
   { id: 'monthly', label: 'شهري', icon: '📅' },
   { id: 'quarterly', label: 'كل 3 شهور', icon: '📆' },
@@ -249,6 +260,8 @@ export const ACTIVITY_TYPES = {
   REFERRAL_ADDED: { id: 'referral:added', label: 'إضافة إحالة', icon: '🤝', color: '#2E7D32' },
   PORTFOLIO_ADDED: { id: 'portfolio:added', label: 'إضافة صورة للمعرض', icon: '📸', color: '#2E7D32' },
   PORTFOLIO_DELETED: { id: 'portfolio:deleted', label: 'حذف صورة من المعرض', icon: '🗑️', color: '#C62828' },
+  GARMENT_TYPE_ADDED: { id: 'garmentType:added', label: 'إضافة نوع جلابية', icon: '👔', color: '#2E7D32' },
+  GARMENT_TYPE_DELETED: { id: 'garmentType:deleted', label: 'حذف نوع جلابية', icon: '🗑️', color: '#C62828' },
   BACKUP_EXPORTED: { id: 'backup:exported', label: 'تصدير نسخة احتياطية', icon: '📤', color: '#1565C0' },
   BACKUP_IMPORTED: { id: 'backup:imported', label: 'استيراد نسخة احتياطية', icon: '📥', color: '#1565C0' },
   DATA_RESET: { id: 'data:reset', label: 'حذف جميع البيانات', icon: '⚠️', color: '#C62828' },
@@ -276,5 +289,6 @@ export const TRASH_ITEM_TYPES = {
   loanPayment: { label: 'دفعة قرض', icon: '💵', color: '#EF6C00' },
   savingsGoal: { label: 'هدف ادخار', icon: '🎯', color: '#2E7D32' },
   referral: { label: 'إحالة', icon: '🤝', color: '#0277BD' },
-  portfolio: { label: 'صورة معرض', icon: '📸', color: '#6A1B9A' }
+  portfolio: { label: 'صورة معرض', icon: '📸', color: '#6A1B9A' },
+  garmentType: { label: 'نوع جلابية', icon: '👔', color: '#C62828' }
 };
