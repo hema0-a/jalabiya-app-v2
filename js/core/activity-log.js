@@ -1,244 +1,136 @@
 /* ============================================================
-   activity-log.js - صفحة سجل النشاط (V2)
-   (عرض الأحداث + فلترة + بحث + حذف + مسح السجل)
+   activity-log.js - نظام سجل النشاط (V2)
+   (نسخة نهائية - يشمل clearActivityLog)
    ============================================================ */
 
-import { toast } from '../ui/toast.js';
-import { openModal, closeModal } from '../ui/modal.js';
-import { money } from '../core/utils.js';
-import {
-  getActivities,
-  filterActivities,
-  clearActivityLog,
-  getActivityInfo,
-  deleteActivity
-} from '../core/activity-log.js';
-import { ACTIVITY_TYPES } from '../core/config.js';
+import { APP_CONFIG, ACTIVITY_TYPES } from './config.js';
+import * as storage from './storage.js';
+import { events, EVENTS } from './events.js';
+import { uid } from './utils.js';
 
-// متغيرات حالة الصفحة
-let searchQuery = '';
-let selectedType = 'all';
+/* إضافة حدث جديد إلى السجل */
+export function logActivity(type, description, metadata = {}) {
+  try {
+    const db = storage.loadDB();
+    if (!db) return null;
+    if (!Array.isArray(db.activityLog)) db.activityLog = [];
 
-export function renderActivityLogPage(container) {
-  // 1. جلب الأنشطة المفلترة
-  const activities = filterActivities({
-    type: selectedType,
-    searchQuery: searchQuery
-  });
+    const activity = {
+      id: uid(),
+      type: type,
+      description: description,
+      metadata: metadata,
+      timestamp: Date.now()
+    };
 
-  // 2. حساب الإحصائيات
-  const totalActivities = getActivities().length;
-  const todayActivities = getActivities().filter(a => {
-    const d = new Date(a.timestamp);
-    const now = new Date();
-    return d.toDateString() === now.toDateString();
-  }).length;
+    db.activityLog.push(activity);
 
-  // 3. بناء واجهة الصفحة
-  let html = `
-    <div class="card">
-      <div class="flex-between mb-2">
-        <h2 class="card-title no-border" style="margin:0;">📜 سجل النشاط</h2>
-        <button class="btn btn-danger" id="clear-log-btn" style="font-size: 12px; padding: 6px 12px; min-height: 36px;">🗑️ مسح</button>
-      </div>
+    if (db.activityLog.length > APP_CONFIG.maxActivityLog) {
+      const excess = db.activityLog.length - APP_CONFIG.maxActivityLog;
+      db.activityLog.splice(0, excess);
+    }
 
-      <!-- إحصائيات -->
-      <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 16px;">
-        <div class="stat-card" style="padding: 10px 6px;">
-          <div class="stat-value" style="font-size: 20px;">${totalActivities}</div>
-          <div class="stat-label">إجمالي الأحداث</div>
-        </div>
-        <div class="stat-card" style="padding: 10px 6px;">
-          <div class="stat-value" style="font-size: 20px; color: var(--primary-color);">${todayActivities}</div>
-          <div class="stat-label">أحداث اليوم</div>
-        </div>
-      </div>
+    storage.saveDB(db);
+    return activity;
+  } catch (e) {
+    console.error('❌ فشل تسجيل النشاط:', e);
+    return null;
+  }
+}
 
-      <!-- حقل البحث -->
-      <div class="form-group" style="margin-bottom: 10px;">
-        <input type="text" id="search-activity-input" class="form-control" placeholder="🔍 ابحث في السجل..." value="${searchQuery}">
-      </div>
+/* جلب كل الأنشطة */
+export function getActivities() {
+  const db = storage.loadDB();
+  if (!db || !Array.isArray(db.activityLog)) return [];
+  return [...db.activityLog].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+}
 
-      <!-- فلترة النوع -->
-      <div class="form-group" style="margin-bottom: 12px;">
-        <select id="activity-type-filter" class="form-control">
-          <option value="all" ${selectedType === 'all' ? 'selected' : ''}>جميع الأنواع</option>
-          <option value="${ACTIVITY_TYPES.CUSTOMER_ADDED.id}" ${selectedType === ACTIVITY_TYPES.CUSTOMER_ADDED.id ? 'selected' : ''}>👤 العملاء</option>
-          <option value="${ACTIVITY_TYPES.ORDER_ADDED.id}" ${selectedType === ACTIVITY_TYPES.ORDER_ADDED.id ? 'selected' : ''}>📋 الطلبات</option>
-          <option value="${ACTIVITY_TYPES.PAYMENT_ADDED.id}" ${selectedType === ACTIVITY_TYPES.PAYMENT_ADDED.id ? 'selected' : ''}>💰 الدفعات</option>
-          <option value="${ACTIVITY_TYPES.EXPENSE_ADDED.id}" ${selectedType === ACTIVITY_TYPES.EXPENSE_ADDED.id ? 'selected' : ''}>💸 المصروفات</option>
-          <option value="${ACTIVITY_TYPES.INVENTORY_ADDED.id}" ${selectedType === ACTIVITY_TYPES.INVENTORY_ADDED.id ? 'selected' : ''}>📦 المخزون</option>
-          <option value="${ACTIVITY_TYPES.WORKER_ADDED.id}" ${selectedType === ACTIVITY_TYPES.WORKER_ADDED.id ? 'selected' : ''}>👷 العمال</option>
-          <option value="${ACTIVITY_TYPES.LOAN_ADDED.id}" ${selectedType === ACTIVITY_TYPES.LOAN_ADDED.id ? 'selected' : ''}>💵 القروض</option>
-        </select>
-      </div>
+/* تصفية الأنشطة */
+export function filterActivities({ type = null, searchQuery = '', fromDate = null, toDate = null } = {}) {
+  let activities = getActivities();
 
-      <!-- قائمة الأنشطة -->
-  `;
-
-  if (activities.length === 0) {
-    html += `
-      <div class="empty-state">
-        <div class="empty-state-icon">📜</div>
-        <p>${searchQuery || selectedType !== 'all' ? 'لا توجد نتائج مطابقة.' : 'لا يوجد نشاط مسجل حتى الآن.'}</p>
-      </div>
-    `;
-  } else {
-    // تجميع الأحداث حسب اليوم
-    const grouped = groupByDay(activities);
-    html += `<div style="display:flex; flex-direction:column; gap:12px;">`;
-
-    Object.keys(grouped).forEach(day => {
-      html += `
-        <div>
-          <div style="font-size: 12px; color: var(--text-muted); font-weight: 700; padding: 4px 0; border-bottom: 1px solid var(--border-color); margin-bottom: 8px;">
-            ${day} (${grouped[day].length} حدث)
-          </div>
-          <div style="display:flex; flex-direction:column; gap:6px;">
-            ${grouped[day].map(a => {
-              const info = getActivityInfo(a.type);
-              const time = formatTime(a.timestamp);
-              return `
-                <div class="activity-item" data-id="${a.id}" style="border-right: 3px solid ${info.color}; padding: 10px 12px; border-radius: var(--radius-md); background: var(--bg-color); cursor: pointer; display: flex; gap: 10px; align-items: center;">
-                  <div style="font-size: 20px;">${info.icon}</div>
-                  <div style="flex: 1; min-width: 0;">
-                    <div style="font-size: 13px; font-weight: 600; color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                      ${a.description}
-                    </div>
-                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
-                      🕒 ${time} — ${info.label}
-                    </div>
-                  </div>
-                </div>
-              `;
-            }).join('')}
-          </div>
-        </div>
-      `;
-    });
-
-    html += `</div>`;
+  if (type && type !== 'all') {
+    activities = activities.filter(a => a.type === type);
   }
 
-  html += `</div>`;
-  container.innerHTML = html;
-
-  // ============================================================
-  // دوال مساعدة
-  // ============================================================
-  function groupByDay(activities) {
-    const groups = {};
-    const now = new Date();
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    activities.forEach(a => {
-      const d = new Date(a.timestamp);
-      const todayStr = now.toDateString();
-      const yesterdayStr = yesterday.toDateString();
-      let key;
-
-      if (d.toDateString() === todayStr) {
-        key = 'اليوم';
-      } else if (d.toDateString() === yesterdayStr) {
-        key = 'أمس';
-      } else {
-        key = formatDate(d);
-      }
-
-      if (!groups[key]) groups[key] = [];
-      groups[key].push(a);
-    });
-
-    return groups;
+  if (searchQuery) {
+    const q = searchQuery.toLowerCase();
+    activities = activities.filter(a => (a.description || '').toLowerCase().includes(q));
   }
 
-  function formatDate(d) {
-    const p = n => String(n).padStart(2, '0');
-    return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`;
+  if (fromDate) {
+    const from = new Date(fromDate).getTime();
+    activities = activities.filter(a => (a.timestamp || 0) >= from);
   }
 
-  function formatTime(timestamp) {
-    const d = new Date(timestamp);
-    const p = n => String(n).padStart(2, '0');
-    let hours = d.getHours();
-    const minutes = p(d.getMinutes());
-    const period = hours >= 12 ? 'م' : 'ص';
-    hours = hours % 12 || 12;
-    return `${hours}:${minutes} ${period}`;
+  if (toDate) {
+    const to = new Date(toDate).getTime() + 86400000;
+    activities = activities.filter(a => (a.timestamp || 0) <= to);
   }
 
-  // ============================================================
-  // ربط الأحداث
-  // ============================================================
+  return activities;
+}
 
-  // زر مسح السجل
-  const clearBtn = container.querySelector('#clear-log-btn');
-  if (clearBtn) {
-    clearBtn.addEventListener('click', () => {
-      if (confirm('هل أنت متأكد من مسح كامل سجل النشاط؟ لا يمكن التراجع.')) {
-        clearActivityLog();
-        toast.success('تم مسح سجل النشاط');
-        renderActivityLogPage(container);
-      }
-    });
+/* مسح السجل بالكامل */
+export function clearActivityLog() {
+  const db = storage.loadDB();
+  if (!db) return false;
+  db.activityLog = [];
+  storage.saveDB(db);
+  return true;
+}
+
+/* حذف نشاط معين */
+export function deleteActivity(id) {
+  const db = storage.loadDB();
+  if (!db || !Array.isArray(db.activityLog)) return false;
+  const idx = db.activityLog.findIndex(a => a.id === id);
+  if (idx === -1) return false;
+  db.activityLog.splice(idx, 1);
+  storage.saveDB(db);
+  return true;
+}
+
+/* معلومات نشاط معين */
+export function getActivityInfo(typeId) {
+  for (const key in ACTIVITY_TYPES) {
+    if (ACTIVITY_TYPES[key].id === typeId) {
+      return ACTIVITY_TYPES[key];
+    }
   }
+  return { id: typeId, label: 'نشاط', icon: '📌', color: '#666' };
+}
 
-  // حقل البحث
-  const searchInput = container.querySelector('#search-activity-input');
-  if (searchInput) {
-    searchInput.addEventListener('input', (e) => {
-      searchQuery = e.target.value;
-      const pos = e.target.selectionStart;
-      renderActivityLogPage(container);
-      const newInput = container.querySelector('#search-activity-input');
-      if (newInput) {
-        newInput.focus();
-        newInput.setSelectionRange(pos, pos);
-      }
-    });
-  }
+/* تفعيل التسجيل التلقائي */
+export function initActivityLogger() {
+  events.on(EVENTS.CUSTOMER_ADDED, (c) => logActivity(ACTIVITY_TYPES.CUSTOMER_ADDED.id, `إضافة عميل: ${c.name}`, { id: c.id }));
+  events.on(EVENTS.CUSTOMER_UPDATED, (c) => logActivity(ACTIVITY_TYPES.CUSTOMER_UPDATED.id, `تعديل عميل: ${c.name}`, { id: c.id }));
+  events.on(EVENTS.CUSTOMER_DELETED, (c) => logActivity(ACTIVITY_TYPES.CUSTOMER_DELETED.id, `حذف عميل: ${c.name}`, { id: c.id }));
 
-  // فلترة النوع
-  const typeFilter = container.querySelector('#activity-type-filter');
-  if (typeFilter) {
-    typeFilter.addEventListener('change', (e) => {
-      selectedType = e.target.value;
-      renderActivityLogPage(container);
-    });
-  }
+  events.on(EVENTS.ORDER_ADDED, (o) => logActivity(ACTIVITY_TYPES.ORDER_ADDED.id, `إضافة طلب: ${o.garmentType || ''} (${o.totalPrice || 0} جنيه)`, { id: o.id }));
+  events.on(EVENTS.ORDER_UPDATED, (o) => logActivity(ACTIVITY_TYPES.ORDER_UPDATED.id, `تعديل طلب: ${o.garmentType || ''}`, { id: o.id }));
+  events.on(EVENTS.ORDER_DELETED, (o) => logActivity(ACTIVITY_TYPES.ORDER_DELETED.id, `حذف طلب: ${o.garmentType || ''}`, { id: o.id }));
 
-  // النقر على نشاط لعرض التفاصيل أو حذفه
-  container.querySelectorAll('.activity-item').forEach(item => {
-    item.addEventListener('click', () => {
-      const id = item.dataset.id;
-      const activity = getActivities().find(a => a.id === id);
-      if (activity) {
-        const info = getActivityInfo(activity.type);
-        const detailsHtml = `
-          <h3 class="card-title no-border">${info.icon} ${info.label}</h3>
-          <div style="background: var(--bg-color); padding: 12px; border-radius: var(--radius-md); margin-bottom: 16px;">
-            <p style="margin: 0 0 8px 0; font-size: 14px;">${activity.description}</p>
-            <div style="font-size: 12px; color: var(--text-muted);">
-              🕒 ${formatDate(new Date(activity.timestamp))} - ${formatTime(activity.timestamp)}
-            </div>
-          </div>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-            <button class="btn btn-danger" id="delete-activity-btn">🗑️ حذف من السجل</button>
-            <button class="btn btn-outline" id="close-activity-details">إغلاق</button>
-          </div>
-        `;
-        openModal(detailsHtml);
+  events.on(EVENTS.PAYMENT_ADDED, (p) => logActivity(ACTIVITY_TYPES.PAYMENT_ADDED.id, `تسجيل دفعة: ${p.amount || 0} جنيه`, { id: p.id }));
 
-        document.getElementById('delete-activity-btn').addEventListener('click', () => {
-          deleteActivity(activity.id);
-          toast.success('تم حذف النشاط من السجل');
-          closeModal();
-          renderActivityLogPage(container);
-        });
+  events.on('expense:added', (e) => logActivity(ACTIVITY_TYPES.EXPENSE_ADDED.id, `إضافة مصروف: ${e.amount || 0} جنيه`, { id: e.id }));
+  events.on('expense:deleted', (e) => logActivity(ACTIVITY_TYPES.EXPENSE_DELETED.id, `حذف مصروف: ${e.amount || 0} جنيه`, { id: e.id }));
 
-        document.getElementById('close-activity-details').addEventListener('click', closeModal);
-      }
-    });
-  });
+  events.on('inventory:added', (i) => logActivity(ACTIVITY_TYPES.INVENTORY_ADDED.id, `إضافة للمخزون: ${i.name}`, { id: i.id }));
+  events.on('inventory:updated', (i) => logActivity(ACTIVITY_TYPES.INVENTORY_UPDATED.id, `تعديل مخزون: ${i.name}`, { id: i.id }));
+  events.on('inventory:deleted', (i) => logActivity(ACTIVITY_TYPES.INVENTORY_DELETED.id, `حذف من المخزون: ${i.name}`, { id: i.id }));
+
+  events.on('worker:added', (w) => logActivity(ACTIVITY_TYPES.WORKER_ADDED.id, `إضافة عامل: ${w.name}`, { id: w.id }));
+  events.on('worker:deleted', (w) => logActivity(ACTIVITY_TYPES.WORKER_DELETED.id, `حذف عامل: ${w.name}`, { id: w.id }));
+
+  events.on('commitment:added', (c) => logActivity(ACTIVITY_TYPES.COMMITMENT_ADDED.id, `إضافة التزام: ${c.name}`, { id: c.id }));
+  events.on('commitment:deleted', (c) => logActivity(ACTIVITY_TYPES.COMMITMENT_DELETED.id, `حذف التزام: ${c.name}`, { id: c.id }));
+
+  events.on('loan:added', (l) => logActivity(ACTIVITY_TYPES.LOAN_ADDED.id, `إضافة قرض: ${l.personName} (${l.amount} جنيه)`, { id: l.id }));
+  events.on('loan:deleted', (l) => logActivity(ACTIVITY_TYPES.LOAN_DELETED.id, `حذف قرض: ${l.personName}`, { id: l.id }));
+
+  events.on('houseExpense:added', (e) => logActivity(ACTIVITY_TYPES.HOUSE_EXPENSE_ADDED.id, `إضافة مصروف بيت: ${e.amount} جنيه`, { id: e.id }));
+  events.on('houseExpense:deleted', (e) => logActivity(ACTIVITY_TYPES.HOUSE_EXPENSE_DELETED.id, `حذف مصروف بيت: ${e.amount} جنيه`, { id: e.id }));
+
+  console.log('✅ تم تفعيل سجل النشاط التلقائي');
 }
