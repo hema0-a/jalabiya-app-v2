@@ -1,23 +1,44 @@
 /* ============================================================
    topbar.js - الشريط العلوي (V2)
+   (يعرض الشعار + اسم الورشة + زر الوضع الليلي)
    ============================================================ */
 
 import { toggleSidebar } from './sidebar.js';
+import { toggleDarkMode, isDarkMode } from '../core/theme.js';
+import { DEFAULT_SETTINGS } from '../core/config.js';
+import * as storage from '../core/storage.js';
 
 export function renderTopbar() {
+  const settings = storage.loadSettings() || { ...DEFAULT_SETTINGS };
+  const workshopName = settings.workshopName || DEFAULT_SETTINGS.workshopName;
+  const workshopLogo = settings.workshopLogo || null;
+  const darkModeEnabled = settings.darkMode || false;
+
   const topbar = document.createElement('header');
   topbar.className = 'topbar';
   
   topbar.innerHTML = `
-    <button id="menu-toggle" class="btn" style="background:none; padding: 8px; font-size: 24px; min-height: auto; cursor:pointer;">
+    <button id="menu-toggle" class="menu-toggle" aria-label="القائمة">
       ☰
     </button>
-    <h1 style="font-size: 16px; margin: 0; color: var(--primary-dark);">ورشة تفصيل الجلابيب</h1>
-    <div style="width: 40px;"></div> <!-- مسافة فارغة لضمان توسط العنوان -->
+    <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; justify-content: center;">
+      ${workshopLogo ? `<img src="${workshopLogo}" alt="الشعار" class="topbar-logo">` : ''}
+      <h1>${workshopName}</h1>
+    </div>
+    <button id="dark-mode-toggle" class="menu-toggle" aria-label="الوضع الليلي" title="الوضع الليلي">
+      ${darkModeEnabled ? '☀️' : '🌙'}
+    </button>
   `;
 
-  // إضافة حدث عند النقر على زر القائمة (☰)
+  // زر فتح/إغلاق القائمة
   topbar.querySelector('#menu-toggle').addEventListener('click', toggleSidebar);
+
+  // زر الوضع الليلي
+  const darkBtn = topbar.querySelector('#dark-mode-toggle');
+  darkBtn.addEventListener('click', () => {
+    const newState = toggleDarkMode();
+    darkBtn.textContent = newState ? '☀️' : '🌙';
+  });
 
   return topbar;
 }
