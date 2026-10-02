@@ -1,6 +1,6 @@
 /* ============================================================
-   orders.js - صفحة الطلبات المتقدمة (V2)
-   (يشمل: تعدد أنواع في الطلب + مواعيد + حد يومي + وقت شغل + تسليم جزئي + توقيع + كانبان)
+   orders.js - صفحة الطلبات المتقدمة الشاملة (V2)
+   (يشمل: تعدد أنواع + خصم + متبقي + موعد تلقائي + صورة مرجعية + فاتورة)
    ============================================================ */
 
 import * as db from '../core/db.js';
@@ -58,7 +58,6 @@ function getDeadlineInfo(order) {
   return { type: 'far', text: `بعد ${daysLeft} يوم`, color: '#2E7D32', daysLeft };
 }
 
-/* الحصول على ملخص الطلب (متوافق مع النظام الجديد والقديم) */
 function getOrderSummary(order) {
   if (order.items && Array.isArray(order.items) && order.items.length > 0) {
     const totalQty = order.items.reduce((s, it) => s + (it.quantity || 0), 0);
@@ -70,13 +69,56 @@ function getOrderSummary(order) {
       isMulti: order.items.length > 1
     };
   }
-  // النظام القديم
   return {
     summary: order.garmentType || '',
     totalQty: order.quantity || 0,
     itemsCount: 1,
     isMulti: false
   };
+}
+
+/* حساب المتبقي (بعد الخصم) */
+function getOrderRemaining(order) {
+  const subtotal = order.subtotal || order.totalPrice || 0;
+  const discount = order.discountAmount || 0;
+  const finalTotal = order.totalPrice || (subtotal - discount);
+  const paid = order.deposit || 0;
+  return Math.max(0, finalTotal - paid);
+}
+
+/* ============================================================
+   اقتراح موعد تسليم تلقائي بناءً على الحد اليومي
+   ============================================================ */
+function suggestDueDate(newOrderTotal) {
+  const settings = storage.loadSettings() || { ...DEFAULT_SETTINGS };
+  const limit = settings.dailyOrderLimit || 700;
+  if (limit <= 0) return null;
+
+  const orders = db.getOrders();
+  
+  // ابدأ من الغد
+  const candidate = new Date();
+  candidate.setDate(candidate.getDate() + 1);
+  
+  // ابحث حتى 30 يوماً للأمام
+  for (let i = 0; i < 30; i++) {
+    const y = candidate.getFullYear();
+    const m = String(candidate.getMonth() + 1).padStart(2, '0');
+    const d = String(candidate.getDate()).padStart(2, '0');
+    const dateStr = `${y}-${m}-${d}`;
+    
+    // إجمالي الطلبات المستحقة في هذا اليوم
+    const dayTotal = orders
+      .filter(o => o.dueDate === dateStr && o.status !== 'delivered')
+      .reduce((s, o) => s + (o.totalPrice || 0), 0);
+    
+    if (dayTotal + newOrderTotal <= limit) {
+      return dateStr;
+    }
+    candidate.setDate(candidate.getDate() + 1);
+  }
+  
+  return null; // لا يوجد موعد متاح خلال 30 يوماً
 }
 
 /* ============================================================
@@ -88,7 +130,6 @@ export function renderOrdersPage(container) {
   const settings = storage.loadSettings() || { ...DEFAULT_SETTINGS };
   const dailyLimit = settings.dailyOrderLimit || 700;
 
-  // الحد اليومي
   const todayStr = today();
   const todayOrders = allOrders.filter(o => o.date === todayStr);
   const todayTotal = todayOrders.reduce((sum, o) => sum + (o.totalPrice || 0), 0);
@@ -96,7 +137,6 @@ export function renderOrdersPage(container) {
   const remainingLimit = Math.max(0, dailyLimit - todayTotal);
   const limitPercent = Math.min(100, Math.round((todayTotal / dailyLimit) * 100));
 
-  // تصفية
   const filteredOrders = allOrders.filter(o => {
     if (selectedStatus !== 'all' && (o.status || 'pending') !== selectedStatus) return false;
     if (searchQuery) {
@@ -109,7 +149,6 @@ export function renderOrdersPage(container) {
     return true;
   }).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
-  // إحصائيات
   const stats = {
     pending: allOrders.filter(o => (o.status || 'pending') === 'pending').length,
     in_progress: allOrders.filter(o => o.status === 'in_progress').length,
@@ -122,7 +161,6 @@ export function renderOrdersPage(container) {
     return daysBetween(o.dueDate, today()) < 0;
   }).length;
 
-  // بناء الواجهة
   let html = `
     <div class="card">
       <div class="flex-between mb-2">
@@ -207,9 +245,6 @@ export function renderOrdersPage(container) {
   html += `</div>`;
   container.innerHTML = html;
 
-  /* ============================================================
-     عرض قائمة الطلبات
-     ============================================================ */
   function renderListView(orders, customers) {
     if (orders.length === 0) {
       return `
@@ -224,12 +259,14 @@ export function renderOrdersPage(container) {
     orders.forEach(o => {
       const customer = customers.find(c => c.id === o.customerId);
       const custName = customer ? customer.name : 'عميل محذوف';
-      const remaining = (o.totalPrice || 0) - (o.deposit || 0);
+      const remaining = getOrderRemaining(o);
       const status = ORDER_STATUSES.find(s => s.id === (o.status || 'pending')) || ORDER_STATUSES[0];
       const timerActive = isOrderTimerActive(o);
       const totalTime = getOrderTotalWorkTime(o);
       const summary = getOrderSummary(o);
       const deadline = getDeadlineInfo(o);
+      const hasDiscount = (o.discountAmount || 0) > 0;
+      const hasImage = !!o.referenceImage;
 
       result += `
         <div class="order-item" data-id="${o.id}" style="border: 1px solid var(--border-color); ${deadline && deadline.type === 'overdue' ? 'border-right: 4px solid #C62828;' : ''} padding: 12px; border-radius: var(--radius-md); background: var(--bg-color); cursor: pointer;">
@@ -238,18 +275,20 @@ export function renderOrdersPage(container) {
               👤 ${custName}
               ${timerActive ? '<span class="badge" style="background: #E1F5FE; color: #0277BD; margin-right: 6px;">⏱️ يعمل</span>' : ''}
               ${summary.isMulti ? '<span class="badge" style="background: #F3E5F5; color: #6A1B9A; margin-right: 6px;">' + summary.itemsCount + ' أنواع</span>' : ''}
+              ${hasDiscount ? '<span class="badge" style="background: #FFF8E1; color: #F57F17; margin-right: 6px;">💸 خصم</span>' : ''}
+              ${hasImage ? '<span class="badge" style="background: #E3F2FD; color: #1565C0; margin-right: 6px;">📷</span>' : ''}
             </div>
             <span class="status-badge ${o.status || 'pending'}">${status.icon} ${status.label}</span>
           </div>
           <div style="font-size:13px; margin-bottom: 6px;">🧵 ${summary.summary}</div>
-          <div style="font-size:11px; color:var(--text-muted); margin-bottom: 4px;">📦 الكمية الإجمالية: ${summary.totalQty}</div>
+          <div style="font-size:11px; color:var(--text-muted); margin-bottom: 4px;">📦 الكمية: ${summary.totalQty}</div>
           ${deadline ? `
             <div style="font-size: 11px; font-weight: 700; color: ${deadline.color}; margin-bottom: 4px;">
               📅 التسليم: ${formatDate(o.dueDate)} — ${deadline.text}
             </div>
           ` : ''}
           <div style="font-size:12px; color:var(--text-muted);">
-            💰 الإجمالي: ${money(o.totalPrice)} | المدفوع: ${money(o.deposit)} | المتبقي: <span style="color:${remaining > 0 ? '#dc3545' : '#2E7D32'}; font-weight: bold;">${money(remaining)}</span>
+            💰 الإجمالي: ${money(o.totalPrice)}${hasDiscount ? ` <span style="color: #F57F17;">(بعد خصم ${money(o.discountAmount)})</span>` : ''} | المدفوع: ${money(o.deposit)} | المتبقي: <span style="color:${remaining > 0 ? '#dc3545' : '#2E7D32'}; font-weight: bold;">${money(remaining)}</span>
           </div>
           ${totalTime > 0 ? `<div style="font-size: 11px; color: #6A1B9A; margin-top: 4px;">⏱️ وقت الشغل: ${formatDuration(totalTime)}</div>` : ''}
         </div>
@@ -259,9 +298,6 @@ export function renderOrdersPage(container) {
     return result;
   }
 
-  /* ============================================================
-     عرض كانبان
-     ============================================================ */
   function renderKanbanView(orders, customers) {
     let result = `<div class="kanban-board">`;
 
@@ -283,7 +319,7 @@ export function renderOrdersPage(container) {
         statusOrders.forEach(o => {
           const customer = customers.find(c => c.id === o.customerId);
           const custName = customer ? customer.name : 'عميل محذوف';
-          const remaining = (o.totalPrice || 0) - (o.deposit || 0);
+          const remaining = getOrderRemaining(o);
           const timerActive = isOrderTimerActive(o);
           const deadline = getDeadlineInfo(o);
           const summary = getOrderSummary(o);
@@ -343,23 +379,28 @@ export function renderOrdersPage(container) {
     const hasSignature = isEdit && order.signature;
     const garmentTypes = db.getGarmentTypes();
 
-    // ===== تحضير العناصر (Items) =====
+    // ===== حالة الخصم =====
+    let discountType = isEdit ? (order.discountType || 'none') : 'none';
+    let discountValue = isEdit ? (order.discountValue || 0) : 0;
+
+    // ===== العناصر =====
     let items = [];
     if (isEdit && order.items && Array.isArray(order.items) && order.items.length > 0) {
       items = JSON.parse(JSON.stringify(order.items));
     } else if (isEdit) {
-      // ترحيل من النظام القديم
       items = [{
         id: uid(),
         typeId: null,
         name: order.garmentType || '',
-        price: order.totalPrice || 0,
+        price: (order.subtotal || order.totalPrice || 0) / (order.quantity || 1),
         quantity: order.quantity || 1
       }];
     } else {
-      // طلب جديد: عنصر واحد فارغ
       items = [{ id: uid(), typeId: null, name: '', price: 0, quantity: 1 }];
     }
+
+    // ===== الصورة المرجعية =====
+    let referenceImage = isEdit ? (order.referenceImage || null) : null;
 
     const customerOptions = customers.map(c => {
       const selected = (isEdit && c.id === order.customerId) ? 'selected' : '';
@@ -371,11 +412,6 @@ export function renderOrdersPage(container) {
         <span>${s.icon}</span><span>${s.label}</span>
       </div>
     `).join('');
-
-    // خيارات أنواع الجلابيات
-    const garmentTypeOptions = garmentTypes.length === 0
-      ? '<option value="">لا توجد أنواع - أدخل يدوياً</option>'
-      : garmentTypes.map(t => `<option value="${t.id}">${t.name} - ${t.price} ج</option>`).join('');
 
     const formHtml = `
       <h3 class="card-title no-border">${title}</h3>
@@ -403,9 +439,7 @@ export function renderOrdersPage(container) {
           </select>
         </div>
 
-        <!-- ============================================================
-             أنواع الجلابيات في الطلب (جديد)
-             ============================================================ -->
+        <!-- أنواع الجلابيات -->
         <div style="background: var(--bg-color); padding: 12px; border-radius: var(--radius-md); margin-bottom: 12px;">
           <div class="flex-between" style="margin-bottom: 10px;">
             <h4 style="font-size: 14px; margin: 0; color: var(--primary-dark);">🧵 أنواع الجلابيات</h4>
@@ -413,23 +447,70 @@ export function renderOrdersPage(container) {
           </div>
           
           <div id="order-items-container" style="display: flex; flex-direction: column; gap: 10px;"></div>
-          
-          <!-- الإجمالي -->
-          <div style="margin-top: 12px; padding: 10px; background: linear-gradient(135deg, var(--primary-color), var(--primary-dark)); border-radius: var(--radius-md); color: white;">
-            <div class="flex-between">
-              <span style="font-size: 13px; opacity: 0.9;">الإجمالي الكلي:</span>
-              <strong style="font-size: 20px;" id="order-total-display">0</strong>
-            </div>
-            <div style="font-size: 11px; opacity: 0.8; text-align: right; margin-top: 4px;">
-              <span id="order-items-count-display">0</span> عنصر | 
-              <span id="order-qty-total-display">0</span> قطعة
-            </div>
+        </div>
+
+        <!-- ============================================================
+             الصورة المرجعية (جديد)
+             ============================================================ -->
+        <div class="form-group">
+          <label style="display: flex; align-items: center; justify-content: space-between;">
+            <span>📷 صورة مرجعية (اختياري)</span>
+            ${referenceImage ? `<button type="button" id="remove-image-btn" style="background: none; border: none; color: #dc3545; font-size: 12px; cursor: pointer;">🗑️ حذف</button>` : ''}
+          </label>
+          <div id="reference-image-preview" style="width: 100%; height: ${referenceImage ? '150px' : '60px'}; background: var(--bg-color); border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; border: 2px dashed var(--border-color); margin-bottom: 8px; overflow: hidden; ${referenceImage ? '' : 'cursor: pointer;'}">
+            ${referenceImage 
+              ? `<img src="${referenceImage}" style="width: 100%; height: 100%; object-fit: cover; border-radius: var(--radius-md);">`
+              : `<span style="font-size: 12px; color: var(--text-muted);">لا توجد صورة</span>`}
           </div>
+          <button type="button" class="btn btn-outline btn-full" id="pick-from-portfolio-btn" style="min-height: 36px; font-size: 12px;">
+            🖼️ اختر من معرض الأعمال
+          </button>
+        </div>
+
+        <!-- ============================================================
+             الخصم (جديد)
+             ============================================================ -->
+        <div class="form-group">
+          <label>💸 الخصم</label>
+          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 8px;">
+            <button type="button" class="btn ${discountType === 'none' ? 'btn-primary' : 'btn-outline'} discount-type-btn" data-type="none" style="font-size: 11px; min-height: 34px; padding: 4px;">بدون</button>
+            <button type="button" class="btn ${discountType === 'percent' ? 'btn-primary' : 'btn-outline'} discount-type-btn" data-type="percent" style="font-size: 11px; min-height: 34px; padding: 4px;">نسبة %</button>
+            <button type="button" class="btn ${discountType === 'fixed' ? 'btn-primary' : 'btn-outline'} discount-type-btn" data-type="fixed" style="font-size: 11px; min-height: 34px; padding: 4px;">مبلغ ثابت</button>
+          </div>
+          ${discountType !== 'none' ? `
+            <input type="number" id="discount-value" class="form-control" value="${discountValue}" min="0" step="any" placeholder="${discountType === 'percent' ? 'النسبة %' : 'المبلغ بالجنيه'}">
+          ` : ''}
         </div>
 
         <div class="form-group">
           <label>المقدم</label>
           <input type="number" id="order-deposit" class="form-control" value="${isEdit ? (order.deposit || 0) : 0}">
+        </div>
+
+        <!-- ============================================================
+             ملخص الحساب الحي (جديد)
+             ============================================================ -->
+        <div style="background: linear-gradient(135deg, var(--primary-color), var(--primary-dark)); border-radius: var(--radius-md); padding: 12px; margin-bottom: 12px; color: white;">
+          <div class="flex-between" style="padding: 4px 0; font-size: 13px;">
+            <span style="opacity: 0.85;">المجموع الفرعي:</span>
+            <strong id="subtotal-display">0</strong>
+          </div>
+          <div class="flex-between" style="padding: 4px 0; font-size: 13px; border-bottom: 1px dashed rgba(255,255,255,0.3); padding-bottom: 8px;">
+            <span style="opacity: 0.85;">الخصم:</span>
+            <strong id="discount-display" style="color: #FFD54F;">0</strong>
+          </div>
+          <div class="flex-between" style="padding: 8px 0 4px 0; font-size: 14px;">
+            <span style="font-weight: 700;">الإجمالي بعد الخصم:</span>
+            <strong id="final-total-display" style="font-size: 20px;">0</strong>
+          </div>
+          <div class="flex-between" style="padding: 4px 0; font-size: 13px; border-top: 1px dashed rgba(255,255,255,0.3); padding-top: 8px;">
+            <span style="opacity: 0.85;">المدفوع:</span>
+            <strong id="paid-display">0</strong>
+          </div>
+          <div class="flex-between" style="padding: 4px 0; font-size: 15px; border-top: 2px solid rgba(255,255,255,0.4); padding-top: 8px; margin-top: 4px;">
+            <span style="font-weight: 800;">✨ المتبقي:</span>
+            <strong id="remaining-display" style="font-size: 20px; color: #FFD54F;">0</strong>
+          </div>
         </div>
 
         <!-- المواعيد -->
@@ -440,8 +521,12 @@ export function renderOrdersPage(container) {
             <input type="date" id="order-received-date" class="form-control" value="${isEdit ? (order.receivedDate || '') : ''}">
           </div>
           <div class="form-group" style="margin-bottom: 0;">
-            <label style="font-size: 12px;">📆 تاريخ التسليم المتفق عليه</label>
+            <label style="font-size: 12px; display: flex; align-items: center; justify-content: space-between;">
+              <span>📆 تاريخ التسليم المتفق عليه</span>
+              <button type="button" id="suggest-date-btn" style="background: none; border: none; color: var(--primary-color); font-size: 11px; cursor: pointer; font-weight: 700;">💡 اقترح تلقائياً</button>
+            </label>
             <input type="date" id="order-due-date" class="form-control" value="${isEdit ? (order.dueDate || '') : ''}">
+            <div id="suggest-hint" style="font-size: 11px; color: var(--primary-color); margin-top: 4px; display: none;"></div>
           </div>
         </div>
 
@@ -463,7 +548,7 @@ export function renderOrdersPage(container) {
         ${isEdit ? `
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px;">
             <button type="button" class="btn btn-outline" id="print-invoice-btn">🖨️ طباعة</button>
-            <button type="button" class="btn btn-outline" id="share-invoice-btn" style="color: #25D366; border-color: #25D366;">📱 واتساب</button>
+            <button type="button" class="btn" id="share-invoice-btn" style="background: #25D366; color: white;">📱 واتساب</button>
           </div>
           ${currentStatus !== 'delivered' ? `
             <button type="button" class="btn btn-primary btn-full" id="full-delivery-btn" style="margin-bottom: 12px;">
@@ -478,7 +563,7 @@ export function renderOrdersPage(container) {
           </div>
           <div>
             <button type="button" class="btn btn-outline" id="cancel-order-btn">إلغاء</button>
-            <button type="submit" class="btn btn-primary">${isEdit ? 'حفظ التغييرات' : 'حفظ'}</button>
+            <button type="submit" class="btn btn-primary">${isEdit ? 'حفظ' : 'حفظ'}</button>
           </div>
         </div>
       </form>
@@ -487,27 +572,43 @@ export function renderOrdersPage(container) {
     openModal(formHtml);
 
     /* ============================================================
-       إدارة العناصر (Items)
+       إدارة العناصر
        ============================================================ */
     const itemsContainer = document.getElementById('order-items-container');
-    const totalDisplay = document.getElementById('order-total-display');
-    const countDisplay = document.getElementById('order-items-count-display');
-    const qtyDisplay = document.getElementById('order-qty-total-display');
 
-    function calculateTotals() {
-      const total = items.reduce((s, it) => s + ((it.price || 0) * (it.quantity || 0)), 0);
-      const qty = items.reduce((s, it) => s + (it.quantity || 0), 0);
-      totalDisplay.textContent = money(total) + ' جنيه';
-      countDisplay.textContent = items.length;
-      qtyDisplay.textContent = qty;
-      return total;
+    function getSubtotal() {
+      return items.reduce((s, it) => s + ((it.price || 0) * (it.quantity || 0)), 0);
+    }
+
+    function calculateDiscount(subtotal) {
+      if (discountType === 'none' || !discountValue) return 0;
+      if (discountType === 'percent') return (subtotal * discountValue) / 100;
+      return Math.min(discountValue, subtotal);
+    }
+
+    function updateSummary() {
+      const subtotal = getSubtotal();
+      const discount = calculateDiscount(subtotal);
+      const finalTotal = subtotal - discount;
+      const deposit = parseFloat(document.getElementById('order-deposit').value) || 0;
+      const remaining = Math.max(0, finalTotal - deposit);
+
+      document.getElementById('subtotal-display').textContent = money(subtotal) + ' ج';
+      document.getElementById('discount-display').textContent = discount > 0 ? '- ' + money(discount) + ' ج' : '0';
+      document.getElementById('final-total-display').textContent = money(finalTotal) + ' ج';
+      document.getElementById('paid-display').textContent = money(deposit) + ' ج';
+      document.getElementById('remaining-display').textContent = money(remaining) + ' ج';
+
+      return { subtotal, discount, finalTotal, deposit, remaining };
     }
 
     function renderItems() {
       itemsContainer.innerHTML = '';
+      const garmentTypes = db.getGarmentTypes();
+      
       items.forEach((item, idx) => {
         const itemDiv = document.createElement('div');
-        itemDiv.style.cssText = 'border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 10px; background: var(--surface-color); position: relative;';
+        itemDiv.style.cssText = 'border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 10px; background: var(--surface-color);';
         itemDiv.innerHTML = `
           <div class="flex-between" style="margin-bottom: 8px;">
             <strong style="font-size: 13px;">عنصر ${idx + 1}</strong>
@@ -540,20 +641,19 @@ export function renderOrdersPage(container) {
           </div>
           
           <div style="text-align: left; margin-top: 8px; font-size: 12px; color: var(--accent-color); font-weight: 700;">
-            الإجمالي: <span class="item-total-display">${money((item.price || 0) * (item.quantity || 1))}</span> جنيه
+            الإجمالي: <span class="item-total-display">${money((item.price || 0) * (item.quantity || 1))}</span> ج
           </div>
         `;
         itemsContainer.appendChild(itemDiv);
       });
 
-      // ربط الأحداث
       itemsContainer.querySelectorAll('.remove-item-btn').forEach(btn => {
         btn.addEventListener('click', () => {
           const idx = parseInt(btn.dataset.idx);
           if (items.length > 1) {
             items.splice(idx, 1);
             renderItems();
-            calculateTotals();
+            updateSummary();
           }
         });
       });
@@ -567,15 +667,14 @@ export function renderOrdersPage(container) {
             items[idx].name = opt.dataset.name;
             items[idx].price = parseFloat(opt.dataset.price) || 0;
             renderItems();
-            calculateTotals();
+            updateSummary();
           }
         });
       });
 
       itemsContainer.querySelectorAll('.item-name').forEach(inp => {
         inp.addEventListener('input', (e) => {
-          const idx = parseInt(inp.dataset.idx);
-          items[idx].name = e.target.value;
+          items[parseInt(inp.dataset.idx)].name = e.target.value;
         });
       });
 
@@ -583,11 +682,8 @@ export function renderOrdersPage(container) {
         inp.addEventListener('input', (e) => {
           const idx = parseInt(inp.dataset.idx);
           items[idx].price = parseFloat(e.target.value) || 0;
-          // تحديث عرض العنصر
-          const itemDiv = itemsContainer.children[idx];
-          const totalSpan = itemDiv.querySelector('.item-total-display');
-          totalSpan.textContent = money(items[idx].price * items[idx].quantity);
-          calculateTotals();
+          itemsContainer.children[idx].querySelector('.item-total-display').textContent = money(items[idx].price * items[idx].quantity);
+          updateSummary();
         });
       });
 
@@ -595,22 +691,154 @@ export function renderOrdersPage(container) {
         inp.addEventListener('input', (e) => {
           const idx = parseInt(inp.dataset.idx);
           items[idx].quantity = parseInt(e.target.value) || 1;
-          const itemDiv = itemsContainer.children[idx];
-          const totalSpan = itemDiv.querySelector('.item-total-display');
-          totalSpan.textContent = money(items[idx].price * items[idx].quantity);
-          calculateTotals();
+          itemsContainer.children[idx].querySelector('.item-total-display').textContent = money(items[idx].price * items[idx].quantity);
+          updateSummary();
         });
       });
+
+      updateSummary();
     }
 
     document.getElementById('add-item-btn').addEventListener('click', () => {
       items.push({ id: uid(), typeId: null, name: '', price: 0, quantity: 1 });
       renderItems();
-      calculateTotals();
     });
 
     renderItems();
-    calculateTotals();
+
+    /* ============================================================
+       الخصم
+       ============================================================ */
+    function renderDiscountUI() {
+      document.querySelectorAll('.discount-type-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          discountType = btn.dataset.type;
+          if (discountType === 'none') discountValue = 0;
+          // إعادة رسم الواجهة
+          const discountSection = btn.closest('.form-group');
+          const hasInput = document.getElementById('discount-value');
+          if (discountType !== 'none' && !hasInput) {
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.id = 'discount-value';
+            input.className = 'form-control';
+            input.value = discountValue;
+            input.min = 0;
+            input.step = 'any';
+            input.placeholder = discountType === 'percent' ? 'النسبة %' : 'المبلغ بالجنيه';
+            input.addEventListener('input', (e) => {
+              discountValue = parseFloat(e.target.value) || 0;
+              updateSummary();
+            });
+            discountSection.appendChild(input);
+          } else if (discountType === 'none' && hasInput) {
+            hasInput.remove();
+          } else if (hasInput) {
+            hasInput.placeholder = discountType === 'percent' ? 'النسبة %' : 'المبلغ بالجنيه';
+          }
+          // تحديث شكل الأزرار
+          document.querySelectorAll('.discount-type-btn').forEach(b => {
+            if (b.dataset.type === discountType) {
+              b.classList.remove('btn-outline');
+              b.classList.add('btn-primary');
+            } else {
+              b.classList.remove('btn-primary');
+              b.classList.add('btn-outline');
+            }
+          });
+          updateSummary();
+        });
+      });
+
+      const existingInput = document.getElementById('discount-value');
+      if (existingInput) {
+        existingInput.addEventListener('input', (e) => {
+          discountValue = parseFloat(e.target.value) || 0;
+          updateSummary();
+        });
+      }
+    }
+    renderDiscountUI();
+
+    /* ============================================================
+       المقدم - تحديث المتبقي
+       ============================================================ */
+    document.getElementById('order-deposit').addEventListener('input', updateSummary);
+
+    /* ============================================================
+       الصورة المرجعية
+       ============================================================ */
+    const portfolio = db.getPortfolio();
+
+    document.getElementById('pick-from-portfolio-btn').addEventListener('click', () => {
+      if (portfolio.length === 0) {
+        toast.info('لا توجد صور في معرض الأعمال. أضف صوراً أولاً من "معرض الأعمال".');
+        return;
+      }
+
+      const portfolioHtml = `
+        <h3 class="card-title no-border">🖼️ اختر صورة من المعرض</h3>
+        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; max-height: 50vh; overflow-y: auto;">
+          ${portfolio.map(p => `
+            <div class="portfolio-pick-item" data-id="${p.id}" style="border: 2px solid var(--border-color); border-radius: var(--radius-md); overflow: hidden; cursor: pointer;">
+              <img src="${p.image}" style="width: 100%; height: 100px; object-fit: cover;">
+              <div style="padding: 6px; font-size: 11px; text-align: center;">${p.title}</div>
+            </div>
+          `).join('')}
+        </div>
+        <button class="btn btn-outline btn-full mt-3" id="cancel-pick-btn">إلغاء</button>
+      `;
+      openModal(portfolioHtml);
+
+      document.querySelectorAll('.portfolio-pick-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const p = db.getPortfolioItem(item.dataset.id);
+          if (p) {
+            referenceImage = p.image;
+            closeModal();
+            // إعادة فتح نموذج الطلب مع الصورة الجديدة
+            setTimeout(() => openOrderModalWithData(isEdit, order, items, discountType, discountValue, referenceImage), 200);
+          }
+        });
+      });
+
+      document.getElementById('cancel-pick-btn').addEventListener('click', () => {
+        closeModal();
+        setTimeout(() => openOrderModalWithData(isEdit, order, items, discountType, discountValue, referenceImage), 200);
+      });
+    });
+
+    const removeImgBtn = document.getElementById('remove-image-btn');
+    if (removeImgBtn) {
+      removeImgBtn.addEventListener('click', () => {
+        referenceImage = null;
+        closeModal();
+        setTimeout(() => openOrderModalWithData(isEdit, order, items, discountType, discountValue, referenceImage), 200);
+      });
+    }
+
+    /* ============================================================
+       الموعد التلقائي
+       ============================================================ */
+    document.getElementById('suggest-date-btn').addEventListener('click', () => {
+      const currentTotal = getSubtotal() - calculateDiscount(getSubtotal());
+      if (currentTotal <= 0) {
+        toast.error('أضف عناصر أولاً لحساب الموعد');
+        return;
+      }
+      const suggested = suggestDueDate(currentTotal);
+      const hintDiv = document.getElementById('suggest-hint');
+      if (suggested) {
+        document.getElementById('order-due-date').value = suggested;
+        hintDiv.textContent = '✅ تم اقتراح ' + formatDate(suggested) + ' (أول يوم متاح)';
+        hintDiv.style.display = 'block';
+        hintDiv.style.color = '#2E7D32';
+      } else {
+        hintDiv.textContent = '⚠️ لا يوجد موعد متاح خلال 30 يوماً. الورشة ممتلئة!';
+        hintDiv.style.display = 'block';
+        hintDiv.style.color = '#dc3545';
+      }
+    });
 
     /* ============================================================
        اختيار الحالة
@@ -633,8 +861,7 @@ export function renderOrdersPage(container) {
 
       function updateTimeDisplay() {
         const freshOrder = db.getOrder(order.id);
-        const total = getOrderTotalWorkTime(freshOrder);
-        timeDisplay.textContent = formatDuration(total);
+        timeDisplay.textContent = formatDuration(getOrderTotalWorkTime(freshOrder));
       }
 
       if (timerBtn) {
@@ -642,7 +869,6 @@ export function renderOrdersPage(container) {
           const freshOrder = db.getOrder(order.id);
           const sessions = freshOrder.workSessions || [];
           const active = sessions.length > 0 && !sessions[sessions.length - 1].end;
-
           if (active) {
             sessions[sessions.length - 1].end = Date.now();
             db.updateOrder(order.id, { workSessions: sessions });
@@ -668,7 +894,7 @@ export function renderOrdersPage(container) {
     }
 
     /* ============================================================
-       التسليم الكامل + التوقيع
+       التسليم الكامل
        ============================================================ */
     if (isEdit && document.getElementById('full-delivery-btn')) {
       document.getElementById('full-delivery-btn').addEventListener('click', () => {
@@ -680,8 +906,7 @@ export function renderOrdersPage(container) {
     /* ============================================================
        حفظ النموذج
        ============================================================ */
-    const form = document.getElementById('order-form');
-    form.addEventListener('submit', (e) => {
+    document.getElementById('order-form').addEventListener('submit', (e) => {
       e.preventDefault();
 
       const customerId = document.getElementById('order-customer').value;
@@ -695,29 +920,25 @@ export function renderOrdersPage(container) {
         return;
       }
 
-      // التحقق من العناصر
       const validItems = items.filter(it => it.name && it.name.trim() !== '' && it.price > 0 && it.quantity > 0);
       if (validItems.length === 0) {
         toast.error('الرجاء إضافة عنصر واحد على الأقل ببيانات صحيحة');
         return;
       }
 
-      // حساب الإجماليات
-      const totalPrice = validItems.reduce((s, it) => s + (it.price * it.quantity), 0);
+      const subtotal = validItems.reduce((s, it) => s + (it.price * it.quantity), 0);
+      const discount = calculateDiscount(subtotal);
+      const finalTotal = subtotal - discount;
       const totalQty = validItems.reduce((s, it) => s + it.quantity, 0);
       const firstItem = validItems[0];
 
-      // التحقق من الحد اليومي
       if (!isEdit) {
         const settings2 = storage.loadSettings() || { ...DEFAULT_SETTINGS };
         const limit = settings2.dailyOrderLimit || 700;
         const todayStr2 = today();
         const todayTotalNow = db.getOrders().filter(o => o.date === todayStr2).reduce((s, o) => s + (o.totalPrice || 0), 0);
-        const newTotal = todayTotalNow + totalPrice;
-
-        if (newTotal > limit) {
-          const over = newTotal - limit;
-          const proceed = confirm(`⚠️ تحذير: ستتجاوز الحد اليومي بمقدار ${over} جنيه.\n\nالحد: ${limit}\nالإجمالي بعد الإضافة: ${newTotal}\n\nهل تريد المتابعة؟`);
+        if (todayTotalNow + finalTotal > limit) {
+          const proceed = confirm(`⚠️ تحذير: ستتجاوز الحد اليومي.\n\nالحد: ${limit}\nالإجمالي بعد الإضافة: ${todayTotalNow + finalTotal}\n\nهل تريد المتابعة؟`);
           if (!proceed) return;
         }
       }
@@ -725,14 +946,18 @@ export function renderOrdersPage(container) {
       const orderData = {
         customerId,
         items: validItems,
-        // حقول متوافقة مع النظام القديم
         garmentType: firstItem.name + (validItems.length > 1 ? ` + ${validItems.length - 1}` : ''),
         quantity: totalQty,
-        totalPrice: totalPrice,
+        subtotal: subtotal,
+        discountType: discountType,
+        discountValue: discountValue,
+        discountAmount: discount,
+        totalPrice: finalTotal,
         deposit,
         status,
         receivedDate,
         dueDate,
+        referenceImage,
         date: isEdit ? (order.date || today()) : today()
       };
 
@@ -772,15 +997,42 @@ export function renderOrdersPage(container) {
     }
   }
 
+  /* دالة مساعدة لإعادة فتح النموذج مع البيانات المحدثة */
+  function openOrderModalWithData(isEdit, order, items, discountType, discountValue, referenceImage) {
+    if (isEdit) {
+      // تحديث مؤقت للطلب في الذاكرة
+      const currentOrder = db.getOrder(order.id);
+      const updates = {
+        items: items,
+        discountType: discountType,
+        discountValue: discountValue,
+        referenceImage: referenceImage
+      };
+      // نفتح النموذج مباشرة بعد استعادة البيانات
+      const mergedOrder = { ...currentOrder, ...updates };
+      openOrderModal(mergedOrder);
+    } else {
+      // طلب جديد - نحفظ الحالة مؤقتاً
+      const draftOrder = {
+        items: items,
+        discountType: discountType,
+        discountValue: discountValue,
+        referenceImage: referenceImage,
+        customerId: '',
+        status: 'pending',
+        date: today()
+      };
+      openOrderModal(draftOrder);
+    }
+  }
+
   /* ============================================================
      نافذة التوقيع
      ============================================================ */
   function openSignatureModal(order) {
     const formHtml = `
       <h3 class="card-title no-border">✍️ توقيع التسليم</h3>
-      <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
-        اطلب من العميل التوقيع في المساحة التالية بإصبعه.
-      </p>
+      <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">اطلب من العميل التوقيع في المساحة التالية.</p>
       
       <div style="background: var(--bg-color); padding: 10px; border-radius: var(--radius-md); margin-bottom: 12px;">
         <div style="font-size: 12px; color: var(--text-muted);">الطلب:</div>
@@ -790,18 +1042,14 @@ export function renderOrdersPage(container) {
       
       <div style="position: relative; border: 2px dashed var(--border-color); border-radius: var(--radius-md); background: white; margin-bottom: 12px; overflow: hidden;">
         <canvas id="signature-canvas" style="display: block; width: 100%; height: 200px; touch-action: none; cursor: crosshair;"></canvas>
-        <div id="canvas-hint" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #ccc; font-size: 14px; pointer-events: none;">
-          ✍️ وقّع هنا
-        </div>
+        <div id="canvas-hint" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #ccc; font-size: 14px; pointer-events: none;">✍️ وقّع هنا</div>
       </div>
       
       <div class="flex-between mt-2" style="gap: 8px;">
         <button type="button" class="btn btn-outline" id="clear-sig-btn" style="flex: 1;">🗑️ مسح</button>
         <button type="button" class="btn btn-outline" id="cancel-sig-btn" style="flex: 1;">إلغاء</button>
       </div>
-      <button type="button" class="btn btn-primary btn-full mt-2" id="confirm-delivery-btn">
-        📦 تأكيد التسليم
-      </button>
+      <button type="button" class="btn btn-primary btn-full mt-2" id="confirm-delivery-btn">📦 تأكيد التسليم</button>
     `;
 
     openModal(formHtml);
@@ -832,24 +1080,8 @@ export function renderOrdersPage(container) {
       return { x: touch.clientX - rect.left, y: touch.clientY - rect.top };
     }
 
-    function startDrawing(e) {
-      e.preventDefault();
-      isDrawing = true;
-      hasDrawn = true;
-      hint.style.display = 'none';
-      const pos = getPos(e);
-      ctx.beginPath();
-      ctx.moveTo(pos.x, pos.y);
-    }
-
-    function draw(e) {
-      if (!isDrawing) return;
-      e.preventDefault();
-      const pos = getPos(e);
-      ctx.lineTo(pos.x, pos.y);
-      ctx.stroke();
-    }
-
+    function startDrawing(e) { e.preventDefault(); isDrawing = true; hasDrawn = true; hint.style.display = 'none'; const pos = getPos(e); ctx.beginPath(); ctx.moveTo(pos.x, pos.y); }
+    function draw(e) { if (!isDrawing) return; e.preventDefault(); const pos = getPos(e); ctx.lineTo(pos.x, pos.y); ctx.stroke(); }
     function stopDrawing() { isDrawing = false; }
 
     canvas.addEventListener('touchstart', startDrawing, { passive: false });
@@ -874,12 +1106,7 @@ export function renderOrdersPage(container) {
 
     document.getElementById('confirm-delivery-btn').addEventListener('click', () => {
       const signatureData = hasDrawn ? canvas.toDataURL('image/png') : null;
-      const updates = {
-        status: 'delivered',
-        deliveredAt: Date.now(),
-        signature: signatureData
-      };
-      db.updateOrder(order.id, updates);
+      db.updateOrder(order.id, { status: 'delivered', deliveredAt: Date.now(), signature: signatureData });
       toast.success('✅ تم تسليم الطلب بنجاح' + (signatureData ? ' مع التوقيع' : ''));
       closeModal();
       renderOrdersPage(container);
@@ -892,15 +1119,8 @@ export function renderOrdersPage(container) {
   const addBtn = container.querySelector('#add-order-btn');
   if (addBtn) addBtn.addEventListener('click', () => openOrderModal(null));
 
-  container.querySelector('#view-list-btn').addEventListener('click', () => {
-    viewMode = 'list';
-    renderOrdersPage(container);
-  });
-
-  container.querySelector('#view-kanban-btn').addEventListener('click', () => {
-    viewMode = 'kanban';
-    renderOrdersPage(container);
-  });
+  container.querySelector('#view-list-btn').addEventListener('click', () => { viewMode = 'list'; renderOrdersPage(container); });
+  container.querySelector('#view-kanban-btn').addEventListener('click', () => { viewMode = 'kanban'; renderOrdersPage(container); });
 
   const searchInput = container.querySelector('#search-order-input');
   if (searchInput) {
@@ -909,18 +1129,12 @@ export function renderOrdersPage(container) {
       const pos = e.target.selectionStart;
       renderOrdersPage(container);
       const newInput = container.querySelector('#search-order-input');
-      if (newInput) {
-        newInput.focus();
-        newInput.setSelectionRange(pos, pos);
-      }
+      if (newInput) { newInput.focus(); newInput.setSelectionRange(pos, pos); }
     });
   }
 
   container.querySelectorAll('.status-filter-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      selectedStatus = btn.dataset.status;
-      renderOrdersPage(container);
-    });
+    btn.addEventListener('click', () => { selectedStatus = btn.dataset.status; renderOrdersPage(container); });
   });
 
   container.querySelectorAll('.order-item').forEach(item => {
