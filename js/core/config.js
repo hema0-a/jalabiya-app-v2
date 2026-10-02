@@ -1,5 +1,5 @@
 /* ============================================================
-   config.js - الإعدادات الثابتة (V2)
+   config.js - الإعدادات الثابتة الشاملة (V2)
    ============================================================ */
 
 export const APP_CONFIG = {
@@ -57,15 +57,18 @@ export const DEFAULT_DB = {
   payments: [],
   expenses: [],
   
-  // المالية الشخصية
-  commitments: [],
-  houseExpenses: [],
-  personalLoans: [],
-  
   // المخزون والعمال
   inventory: [],
   workers: [],
   workerPayments: [],
+  
+  // المالية الشخصية
+  commitments: [],          // الالتزامات الشهرية (إيجار، أقساط، فواتير)
+  commitmentPayments: [],   // دفعات الالتزامات
+  houseExpenses: [],        // مصاريف البيت
+  personalLoans: [],        // القروض والمديونيات
+  loanPayments: [],         // دفعات القروض
+  savingsGoals: [],         // أهداف الادخار
   
   // متفرقات
   garmentTypes: [],
@@ -118,4 +121,68 @@ export const WORKER_SPECIALTIES = [
   { id: 'ironing', label: 'كي', icon: '🔥' },
   { id: 'finishing', label: 'تشطيب', icon: '✨' },
   { id: 'packaging', label: 'تغليف', icon: '📦' }
+];
+
+/* ============================================================
+   تصنيفات مصروفات الورشة
+   ============================================================ */
+export const EXPENSE_CATEGORIES = [
+  { id: 'materials', label: 'خامات وأقمشة', icon: '🧵' },
+  { id: 'rent', label: 'إيجار', icon: '🏠' },
+  { id: 'electricity', label: 'كهرباء ومياه', icon: '💡' },
+  { id: 'workers', label: 'أجور عمال', icon: '👷' },
+  { id: 'maintenance', label: 'صيانة', icon: '🔧' },
+  { id: 'transport', label: 'مواصلات', icon: '🚗' },
+  { id: 'supplies', label: 'أدوات ومستلزمات', icon: '📦' },
+  { id: 'other', label: 'أخرى', icon: '📌' }
+];
+
+/* ============================================================
+   تصنيفات الالتزامات الشخصية
+   ============================================================ */
+export const COMMITMENT_CATEGORIES = [
+  { id: 'rent', label: 'إيجار', icon: '🏠' },
+  { id: 'installment', label: 'قسط', icon: '💳' },
+  { id: 'bill', label: 'فاتورة', icon: '🧾' },
+  { id: 'saving', label: 'ادخار', icon: '🏦' },
+  { id: 'insurance', label: 'تأمين', icon: '🛡️' },
+  { id: 'school', label: 'تعليم', icon: '🎓' },
+  { id: 'loan', label: 'سداد قرض', icon: '💵' },
+  { id: 'other', label: 'أخرى', icon: '📌' }
+];
+
+/* ============================================================
+   دورية الالتزامات
+   ============================================================ */
+export const COMMITMENT_FREQUENCIES = [
+  { id: 'monthly', label: 'شهري', icon: '📅' },
+  { id: 'quarterly', label: 'كل 3 شهور', icon: '📆' },
+  { id: 'semi_annual', label: 'كل 6 شهور', icon: '🗓️' },
+  { id: 'annual', label: 'سنوي', icon: '🎯' },
+  { id: 'weekly', label: 'أسبوعي', icon: '📊' },
+  { id: 'once', label: 'مرة واحدة', icon: '1️⃣' }
+];
+
+/* ============================================================
+   تصنيفات مصاريف البيت
+   ============================================================ */
+export const HOUSE_EXPENSE_CATEGORIES = [
+  { id: 'food', label: 'طعام وشراب', icon: '🍞' },
+  { id: 'bills', label: 'فواتير', icon: '🧾' },
+  { id: 'transport', label: 'مواصلات', icon: '🚗' },
+  { id: 'health', label: 'صحة ودواء', icon: '💊' },
+  { id: 'education', label: 'تعليم', icon: '📚' },
+  { id: 'clothes', label: 'ملابس', icon: '👕' },
+  { id: 'entertainment', label: 'ترفيه', icon: '🎬' },
+  { id: 'home_maintenance', label: 'صيانة المنزل', icon: '🔧' },
+  { id: 'gifts', label: 'هدايا ومناسبات', icon: '🎁' },
+  { id: 'other', label: 'أخرى', icon: '📌' }
+];
+
+/* ============================================================
+   أنواع القروض
+   ============================================================ */
+export const LOAN_TYPES = [
+  { id: 'given', label: 'قرض قدّمته (ليّ)', icon: '📤' },
+  { id: 'received', label: 'قرض استلمته (عليّ)', icon: '📥' }
 ];
