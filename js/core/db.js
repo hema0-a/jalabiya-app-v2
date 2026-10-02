@@ -19,11 +19,13 @@ export function load() {
     const saved = storage.loadDB();
     if (saved && typeof saved === 'object') {
       state = mergeWithDefaults(saved);
-      console.log('✅ DB loaded:', { 
-        customers: state.customers.length, 
-        orders: state.orders.length, 
+      console.log('✅ DB loaded:', {
+        customers: state.customers.length,
+        orders: state.orders.length,
         payments: state.payments.length,
-        expenses: state.expenses.length 
+        expenses: state.expenses.length,
+        inventory: state.inventory.length,
+        workers: state.workers.length
       });
     } else {
       state = deepClone(DEFAULT_DB);
@@ -41,9 +43,10 @@ export function load() {
 
 function mergeWithDefaults(saved) {
   const merged = { ...deepClone(DEFAULT_DB), ...saved };
-  ['customers', 'orders', 'payments', 'expenses', 'commitments', 
-   'houseExpenses', 'personalLoans', 'garmentTypes', 'holidays', 
-   'occasions', 'activityLog', 'trash'].forEach(key => {
+  ['customers', 'orders', 'payments', 'expenses', 'commitments',
+   'houseExpenses', 'personalLoans', 'inventory', 'workers',
+   'workerPayments', 'garmentTypes', 'holidays', 'occasions',
+   'activityLog', 'trash'].forEach(key => {
     if (!Array.isArray(merged[key])) merged[key] = [];
   });
   return merged;
@@ -158,9 +161,7 @@ export function deleteOrder(id) {
    قسم الدفعات (Payments)
    ============================================================ */
 
-export function getPayments() { 
-  return state.payments; 
-}
+export function getPayments() { return state.payments; }
 
 export function getPayment(id) {
   if (!id) return null;
@@ -168,11 +169,7 @@ export function getPayment(id) {
 }
 
 export function addPayment(payment) {
-  const newPayment = { 
-    ...payment, 
-    id: payment.id || uid(), 
-    createdAt: Date.now() 
-  };
+  const newPayment = { ...payment, id: payment.id || uid(), createdAt: Date.now() };
   state.payments.push(newPayment);
   save();
   events.emit(EVENTS.PAYMENT_ADDED, newPayment);
@@ -192,9 +189,7 @@ export function deletePayment(id) {
    قسم المصروفات (Expenses)
    ============================================================ */
 
-export function getExpenses() { 
-  return state.expenses; 
-}
+export function getExpenses() { return state.expenses; }
 
 export function getExpense(id) {
   if (!id) return null;
@@ -202,12 +197,7 @@ export function getExpense(id) {
 }
 
 export function addExpense(expense) {
-  const newExpense = { 
-    ...expense, 
-    id: expense.id || uid(), 
-    createdAt: Date.now(),
-    updatedAt: Date.now()
-  };
+  const newExpense = { ...expense, id: expense.id || uid(), createdAt: Date.now(), updatedAt: Date.now() };
   state.expenses.push(newExpense);
   save();
   events.emit('expense:added', newExpense);
@@ -230,6 +220,158 @@ export function deleteExpense(id) {
   state.trash.push({ id: uid(), type: 'expense', data: expense, deletedAt: today() });
   save();
   events.emit('expense:deleted', expense);
+  return true;
+}
+
+/* ============================================================
+   قسم المخزون (Inventory)
+   ============================================================ */
+
+export function getInventory() { return state.inventory; }
+
+export function getInventoryItem(id) {
+  if (!id) return null;
+  return state.inventory.find(i => i.id === id) || null;
+}
+
+export function addInventoryItem(item) {
+  const newItem = {
+    ...item,
+    id: item.id || uid(),
+    quantity: Number(item.quantity) || 0,
+    minQuantity: Number(item.minQuantity) || 0,
+    price: Number(item.price) || 0,
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  state.inventory.push(newItem);
+  save();
+  events.emit('inventory:added', newItem);
+  return newItem;
+}
+
+export function updateInventoryItem(id, updates) {
+  const item = getInventoryItem(id);
+  if (!item) return null;
+  Object.assign(item, updates, { updatedAt: Date.now() });
+  save();
+  events.emit('inventory:updated', item);
+  return item;
+}
+
+export function deleteInventoryItem(id) {
+  const idx = state.inventory.findIndex(i => i.id === id);
+  if (idx === -1) return false;
+  const [item] = state.inventory.splice(idx, 1);
+  state.trash.push({ id: uid(), type: 'inventory', data: item, deletedAt: today() });
+  save();
+  events.emit('inventory:deleted', item);
+  return true;
+}
+
+/**
+ * تعديل كمية مخزون (إضافة أو خصم)
+ * @param {string} id - معرّف العنصر
+ * @param {number} delta - الفرق (+ للإضافة، - للخصم)
+ */
+export function adjustInventoryQuantity(id, delta) {
+  const item = getInventoryItem(id);
+  if (!item) return null;
+  const newQty = Math.max(0, (item.quantity || 0) + Number(delta));
+  item.quantity = newQty;
+  item.updatedAt = Date.now();
+  save();
+  events.emit('inventory:updated', item);
+  return item;
+}
+
+/**
+ * الحصول على العناصر التي وصلت للحد الأدنى
+ */
+export function getLowStockItems() {
+  return state.inventory.filter(i => (i.quantity || 0) <= (i.minQuantity || 0) && (i.minQuantity || 0) > 0);
+}
+
+/* ============================================================
+   قسم العمال (Workers)
+   ============================================================ */
+
+export function getWorkers() { return state.workers; }
+
+export function getWorker(id) {
+  if (!id) return null;
+  return state.workers.find(w => w.id === id) || null;
+}
+
+export function addWorker(worker) {
+  const newWorker = {
+    ...worker,
+    id: worker.id || uid(),
+    salary: Number(worker.salary) || 0,
+    active: worker.active !== false,
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  state.workers.push(newWorker);
+  save();
+  events.emit('worker:added', newWorker);
+  return newWorker;
+}
+
+export function updateWorker(id, updates) {
+  const worker = getWorker(id);
+  if (!worker) return null;
+  Object.assign(worker, updates, { updatedAt: Date.now() });
+  save();
+  events.emit('worker:updated', worker);
+  return worker;
+}
+
+export function deleteWorker(id) {
+  const idx = state.workers.findIndex(w => w.id === id);
+  if (idx === -1) return false;
+  const [worker] = state.workers.splice(idx, 1);
+  state.trash.push({ id: uid(), type: 'worker', data: worker, deletedAt: today() });
+  save();
+  events.emit('worker:deleted', worker);
+  return true;
+}
+
+/* ============================================================
+   قسم دفعات العمال (Worker Payments)
+   ============================================================ */
+
+export function getWorkerPayments() { return state.workerPayments; }
+
+export function getWorkerPayment(id) {
+  if (!id) return null;
+  return state.workerPayments.find(p => p.id === id) || null;
+}
+
+export function getWorkerPaymentsByWorker(workerId) {
+  return state.workerPayments.filter(p => p.workerId === workerId);
+}
+
+export function addWorkerPayment(payment) {
+  const newPayment = {
+    ...payment,
+    id: payment.id || uid(),
+    amount: Number(payment.amount) || 0,
+    createdAt: Date.now()
+  };
+  state.workerPayments.push(newPayment);
+  save();
+  events.emit('workerPayment:added', newPayment);
+  return newPayment;
+}
+
+export function deleteWorkerPayment(id) {
+  const idx = state.workerPayments.findIndex(p => p.id === id);
+  if (idx === -1) return false;
+  const [payment] = state.workerPayments.splice(idx, 1);
+  state.trash.push({ id: uid(), type: 'workerPayment', data: payment, deletedAt: today() });
+  save();
+  events.emit('workerPayment:deleted', payment);
   return true;
 }
 
