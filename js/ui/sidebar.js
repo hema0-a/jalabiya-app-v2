@@ -37,6 +37,13 @@ export function renderSidebar() {
       ]
     },
     {
+      title: 'التسويق والعرض',
+      items: [
+        { path: '/portfolio', label: 'معرض الأعمال', icon: '📸' },
+        { path: '/referrals', label: 'الإحالات', icon: '🤝' }
+      ]
+    },
+    {
       title: 'المالية الشخصية',
       items: [
         { path: '/commitments', label: 'الالتزامات', icon: '💳' },
@@ -45,9 +52,8 @@ export function renderSidebar() {
       ]
     },
     {
-      title: 'الميزات المتقدمة',
+      title: 'النظام',
       items: [
-        { path: '/referrals', label: 'الإحالات', icon: '🤝' },
         { path: '/activity-log', label: 'سجل النشاط', icon: '📜' },
         { path: '/trash', label: 'سلة المحذوفات', icon: '🗑️' }
       ]
