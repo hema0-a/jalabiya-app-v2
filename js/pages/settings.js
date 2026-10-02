@@ -52,6 +52,25 @@ export function renderSettingsPage(container) {
         
         <button class="btn btn-primary btn-full" id="save-info-btn">حفظ المعلومات</button>
       </div>
+<!-- ============================================================
+     الحد اليومي للطلبات (جديد)
+     ============================================================ -->
+<div class="card" style="background: var(--bg-color); border: none; margin-bottom: 16px;">
+  <h3 style="font-size: 16px; margin-bottom: 12px;">📊 الحد اليومي للطلبات</h3>
+  <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
+    تحديد الحد الأقصى لقيمة الطلبات اليومية. سيظهر تنبيه عند تجاوز هذا الحد.
+  </p>
+  
+  <div class="form-group">
+    <label>الحد اليومي (بالجنيه) *</label>
+    <input type="number" id="daily-limit" class="form-control" value="${dailyLimit}" min="0" step="50">
+    <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+      💡 مثال: 700 جنيه يومياً.
+    </div>
+  </div>
+  
+  <button class="btn btn-primary btn-full" id="save-daily-limit-btn">حفظ الحد اليومي</button>
+</div>
 
       <!-- ============================================================
            تخصيص الألوان
@@ -220,6 +239,24 @@ export function renderSettingsPage(container) {
     toast.success('تم حفظ المعلومات بنجاح');
     setTimeout(() => window.location.reload(), 800);
   });
+
+   // ============================================================
+// الحد اليومي
+// ============================================================
+const saveDailyLimitBtn = container.querySelector('#save-daily-limit-btn');
+if (saveDailyLimitBtn) {
+  saveDailyLimitBtn.addEventListener('click', () => {
+    const value = parseFloat(document.getElementById('daily-limit').value);
+    if (isNaN(value) || value < 0) {
+      toast.error('الرجاء إدخال قيمة صحيحة');
+      return;
+    }
+    let s = storage.loadSettings() || { ...DEFAULT_SETTINGS };
+    s.dailyOrderLimit = value;
+    storage.saveSettings(s);
+    toast.success('تم حفظ الحد اليومي بنجاح');
+  });
+}
 
   // ============================================================
   // الألوان
