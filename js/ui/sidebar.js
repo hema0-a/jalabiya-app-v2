@@ -1,5 +1,6 @@
 /* ============================================================
    sidebar.js - القائمة الجانبية للتنقل (V2)
+   (النسخة النهائية الشاملة)
    ============================================================ */
 
 import { router } from './router.js';
@@ -43,6 +44,14 @@ export function renderSidebar() {
       ]
     },
     {
+      title: 'الميزات المتقدمة',
+      items: [
+        { path: '/referrals', label: 'الإحالات', icon: '🤝' },
+        { path: '/activity-log', label: 'سجل النشاط', icon: '📜' },
+        { path: '/trash', label: 'سلة المحذوفات', icon: '🗑️' }
+      ]
+    },
+    {
       title: 'التقارير والإعدادات',
       items: [
         { path: '/reports', label: 'التقارير', icon: '📊' },
@@ -65,6 +74,7 @@ export function renderSidebar() {
             <a href="#${item.path}" class="sidebar-item" data-path="${item.path}">
               <span class="icon">${item.icon}</span>
               <span class="label">${item.label}</span>
+              ${item.path === '/trash' ? `<span id="trash-count-badge" style="background: #dc3545; color: white; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: var(--radius-full); margin-right: auto;"></span>` : ''}
             </a>
           `).join('')}
         </div>
@@ -90,7 +100,26 @@ export function renderSidebar() {
         item.classList.remove('active');
       }
     });
+    // تحديث عداد السلة
+    updateTrashBadge();
   });
+
+  // تحديث عداد السلة عند حدوث تغيير
+  events.on('trash:restored', updateTrashBadge);
+  events.on('trash:emptied', updateTrashBadge);
+  events.on('trash:permanentlyDeleted', updateTrashBadge);
+
+  // تحديث أول مرة
+  setTimeout(updateTrashBadge, 100);
+
+  function updateTrashBadge() {
+    const badge = document.getElementById('trash-count-badge');
+    if (!badge) return;
+    import('../core/trash.js').then(module => {
+      const count = module.getTrashCount();
+      badge.textContent = count > 0 ? count : '';
+    }).catch(() => {});
+  }
 
   return sidebar;
 }
@@ -114,7 +143,6 @@ export function openSidebar() {
   
   sidebar.classList.add('open');
   
-  // إضافة طبقة معتمة خلف القائمة
   let backdrop = document.getElementById('sidebar-backdrop');
   if (!backdrop) {
     backdrop = document.createElement('div');
@@ -133,7 +161,6 @@ export function closeSidebar() {
   
   sidebar.classList.remove('open');
   
-  // إزالة الطبقة المعتمة
   const backdrop = document.getElementById('sidebar-backdrop');
   if (backdrop) {
     backdrop.classList.remove('open');
