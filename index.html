@@ -7,11 +7,58 @@
   <meta name="description" content="تطبيق إدارة ورشة تفصيل الجلابيب">
   <title>ورشة تفصيل الجلابيب — V2.0</title>
   
-  <!-- روابط ملفات التنسيق (CSS) -->
   <link rel="stylesheet" href="css/main.css">
   <link rel="stylesheet" href="css/themes.css">
   <link rel="stylesheet" href="css/components.css">
   <link rel="stylesheet" href="css/kanban.css">
+  
+  <script>
+    // ============================================================
+    // معالج الأخطاء - يعرض أي خطأ على الشاشة مباشرة
+    // ============================================================
+    window.addEventListener('error', function(e) {
+      var app = document.getElementById('app');
+      if (app && app.querySelector('.loading-screen')) {
+        app.innerHTML = '<div style="padding:20px; font-family:sans-serif; direction:rtl;">' +
+          '<h2 style="color:#c00; margin-bottom:12px;">⚠️ خطأ في التحميل</h2>' +
+          '<p style="background:#fee; padding:12px; border-radius:8px; font-family:monospace; word-break:break-all; font-size:13px; line-height:1.6;">' +
+            '<strong>الرسالة:</strong> ' + (e.message || 'فشل تحميل ملف') +
+          '</p>' +
+          '<p style="color:#666; font-size:12px; word-break:break-all; margin-top:8px;">' +
+            '<strong>الملف:</strong> ' + (e.filename || 'غير معروف') + '<br>' +
+            '<strong>السطر:</strong> ' + (e.lineno || '') +
+          '</p>' +
+          '<button onclick="location.reload()" style="padding:12px 24px; margin-top:16px; background:#1F6D57; color:white; border:none; border-radius:8px; font-size:14px; cursor:pointer;">إعادة التحميل</button>' +
+        '</div>';
+      }
+    }, true);
+    
+    window.addEventListener('unhandledrejection', function(e) {
+      var app = document.getElementById('app');
+      if (app && app.querySelector('.loading-screen')) {
+        app.innerHTML = '<div style="padding:20px; font-family:sans-serif; direction:rtl;">' +
+          '<h2 style="color:#c00; margin-bottom:12px;">⚠️ خطأ غير متوقع</h2>' +
+          '<p style="background:#fee; padding:12px; border-radius:8px; font-family:monospace; word-break:break-all; font-size:13px;">' +
+            (e.reason ? (e.reason.message || String(e.reason)) : 'خطأ') +
+          '</p>' +
+          '<button onclick="location.reload()" style="padding:12px 24px; margin-top:16px; background:#1F6D57; color:white; border:none; border-radius:8px; font-size:14px; cursor:pointer;">إعادة التحميل</button>' +
+        '</div>';
+      }
+    });
+    
+    // مؤقت احتياطي: إذا لم يبدأ التطبيق خلال 8 ثوانٍ
+    setTimeout(function() {
+      var app = document.getElementById('app');
+      if (app && app.querySelector('.loading-screen')) {
+        app.innerHTML = '<div style="padding:20px; font-family:sans-serif; direction:rtl; text-align:center;">' +
+          '<h2 style="color:#c00;">⚠️ التطبيق لا يستجيب</h2>' +
+          '<p style="margin-top:12px;">لم يتم تحميل التطبيق خلال 8 ثوانٍ.</p>' +
+          '<p style="color:#666; font-size:12px; margin-top:8px;">يوجد خطأ في أحد ملفات JavaScript، لكنه لم يُلتقط. تحقق من سجل GitHub Actions.</p>' +
+          '<button onclick="location.reload()" style="padding:12px 24px; margin-top:16px; background:#1F6D57; color:white; border:none; border-radius:8px; font-size:14px; cursor:pointer;">إعادة التحميل</button>' +
+        '</div>';
+      }
+    }, 8000);
+  </script>
 </head>
 <body>
   <div id="app">
@@ -21,7 +68,6 @@
     </div>
   </div>
   
-  <!-- نقطة الدخول (ES6 Module) -->
   <script type="module" src="js/main.js"></script>
 </body>
 </html>
