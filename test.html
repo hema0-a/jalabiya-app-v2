@@ -1,72 +1,90 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-  <meta charset="UTF-8">
-  <title>تشخيص الملفات</title>
-  <style>
-    body { font-family: monospace; padding: 16px; direction: ltr; background: #f5f5f5; font-size: 13px; }
-    .ok { color: green; }
-    .fail { color: red; font-weight: bold; background: #fee; padding: 4px; border-radius: 4px; display: block; margin-top: 4px; }
-    h1 { font-size: 18px; margin-bottom: 12px; font-family: sans-serif; }
-    .result { padding: 6px 0; border-bottom: 1px solid #ddd; word-break: break-all; }
-    .done { margin-top: 16px; padding: 12px; background: #e0f7fa; border-radius: 8px; font-family: sans-serif; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>فحص الملفات</title>
+<style>
+  body { font-family: monospace; padding: 12px; direction: ltr; background: #f5f5f5; font-size: 13px; margin: 0; }
+  h1 { font-family: sans-serif; font-size: 16px; background: #1F6D57; color: white; padding: 12px; margin: -12px -12px 12px -12px; }
+  .ok { color: #2E7D32; padding: 4px 0; border-bottom: 1px solid #eee; }
+  .fail { color: #C62828; padding: 8px; background: #FFEBEE; border-right: 4px solid #C62828; margin: 4px 0; border-radius: 4px; word-break: break-all; }
+  .info { color: #1565C0; background: #E3F2FD; padding: 8px; border-radius: 4px; margin-bottom: 8px; }
+  .summary { margin-top: 16px; padding: 16px; border-radius: 8px; font-family: sans-serif; font-size: 15px; text-align: center; }
+  .summary.good { background: #C8E6C9; color: #1B5E20; }
+  .summary.bad { background: #FFCDD2; color: #B71C1C; }
+  .err-detail { font-size: 12px; color: #B71C1C; margin-top: 4px; padding-left: 8px; }
+</style>
 </head>
 <body>
-  <h1>🔍 تشخيص الملفات</h1>
-  <div id="results">جاري الفحص...</div>
-  <script type="module">
-    const files = [
-      './js/core/config.js',
-      './js/core/events.js',
-      './js/core/utils.js',
-      './js/core/storage.js',
-      './js/core/db.js',
-      './js/core/theme.js',
-      './js/core/auth.js',
-      './js/core/activity-log.js',
-      './js/core/trash.js',
-      './js/core/invoice.js',
-      './js/ui/router.js',
-      './js/ui/modal.js',
-      './js/ui/toast.js',
-      './js/ui/sidebar.js',
-      './js/ui/topbar.js',
-      './js/pages/dashboard.js',
-      './js/pages/customers.js',
-      './js/pages/orders.js',
-      './js/pages/payments.js',
-      './js/pages/expenses.js',
-      './js/pages/inventory.js',
-      './js/pages/workers.js',
-      './js/pages/commitments.js',
-      './js/pages/house-expenses.js',
-      './js/pages/loans.js',
-      './js/pages/reports.js',
-      './js/pages/settings.js',
-      './js/pages/referrals.js',
-      './js/pages/activity-log.js',
-      './js/pages/trash.js',
-      './js/pages/pricing-calculator.js'
-    ];
-    
-    const resultsDiv = document.getElementById('results');
-    let html = '';
-    let failCount = 0;
-    
-    for (const file of files) {
-      try {
-        await import(file);
-        html += '<div class="result"><span class="ok">✅</span> ' + file + '</div>';
-      } catch (e) {
-        failCount++;
-        html += '<div class="result"><span class="fail">❌ ' + file + '</span><br>&nbsp;&nbsp;&nbsp;→ ' + (e.message || 'unknown error') + '</div>';
-      }
-      resultsDiv.innerHTML = html;
-    }
-    
-    html += '<div class="done"><strong>' + (failCount === 0 ? '✅ جميع الملفات موجودة وسليمة' : '⚠️ عدد الملفات المفقودة/المعطوبة: ' + failCount) + '</strong></div>';
-    resultsDiv.innerHTML = html;
-  </script>
+<h1>🔍 فحص ملفات التطبيق</h1>
+<div class="info">⏳ جاري الفحص... انتظر حتى تظهر النتيجة النهائية في الأسفل</div>
+<div id="results"></div>
+<div id="summary"></div>
+
+<script type="module">
+const files = [
+  './js/core/config.js',
+  './js/core/events.js',
+  './js/core/utils.js',
+  './js/core/storage.js',
+  './js/core/db.js',
+  './js/core/theme.js',
+  './js/core/auth.js',
+  './js/core/activity-log.js',
+  './js/core/trash.js',
+  './js/core/invoice.js',
+  './js/ui/router.js',
+  './js/ui/modal.js',
+  './js/ui/toast.js',
+  './js/ui/sidebar.js',
+  './js/ui/topbar.js',
+  './js/pages/dashboard.js',
+  './js/pages/customers.js',
+  './js/pages/orders.js',
+  './js/pages/payments.js',
+  './js/pages/expenses.js',
+  './js/pages/inventory.js',
+  './js/pages/workers.js',
+  './js/pages/commitments.js',
+  './js/pages/house-expenses.js',
+  './js/pages/loans.js',
+  './js/pages/reports.js',
+  './js/pages/settings.js',
+  './js/pages/referrals.js',
+  './js/pages/activity-log.js',
+  './js/pages/trash.js',
+  './js/pages/pricing-calculator.js'
+];
+
+const resultsDiv = document.getElementById('results');
+const summaryDiv = document.getElementById('summary');
+let html = '';
+let failCount = 0;
+let failedFiles = [];
+
+// فحص التحميل الفعلي
+for (const file of files) {
+  try {
+    await import(file);
+    html += '<div class="ok">✅ ' + file + '</div>';
+  } catch (e) {
+    failCount++;
+    failedFiles.push(file);
+    html += '<div class="fail">❌ ' + file + '<div class="err-detail">' + (e.message || String(e)) + '</div></div>';
+  }
+  resultsDiv.innerHTML = html;
+}
+
+// النتيجة النهائية
+if (failCount === 0) {
+  summaryDiv.className = 'summary good';
+  summaryDiv.innerHTML = '✅ جميع الملفات (' + files.length + ') موجودة وسليمة تماماً!';
+} else {
+  summaryDiv.className = 'summary bad';
+  summaryDiv.innerHTML = '⚠️ يوجد ' + failCount + ' ملف به مشكلة:<br><br>' +
+    failedFiles.map(f => '<strong>' + f + '</strong>').join('<br>');
+}
+</script>
 </body>
 </html>
