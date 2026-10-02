@@ -2,6 +2,7 @@
    main.js - نقطة الدخول الرئيسية (V2)
    ============================================================ */
 
+import { renderOrdersPage } from './pages/orders.js';
 import { APP_CONFIG } from './core/config.js';
 import * as db from './core/db.js';
 import { events, EVENTS } from './core/events.js';
@@ -28,6 +29,7 @@ async function init() {
     // تسجيل الصفحات في الراوتر (سنضيف المزيد لاحقاً)
     router.register('/dashboard', renderDashboardPage);
      router.register('/customers', renderCustomersPage);
+     router.register('/orders', renderOrdersPage);
     router.register('/404', render404Page);
 
     // تشغيل الراوتر ليبدأ عرض الصفحات
