@@ -42,6 +42,7 @@ import { renderTrashPage } from './pages/trash.js';
 
 // استيراد الصفحات - التقارير والإعدادات
 import { renderReportsPage } from './pages/reports.js';
+import { renderKpisPage } from './pages/kpis.js';
 import { renderSettingsPage } from './pages/settings.js';
 
 console.log(`🚀 ${APP_CONFIG.name} v${APP_CONFIG.version}`);
@@ -128,6 +129,7 @@ function startApp() {
   router.register('/trash', renderTrashPage);
   
   // التقارير والإعدادات
+   router.register('/kpis', renderKpisPage);
   router.register('/reports', renderReportsPage);
   router.register('/settings', renderSettingsPage);
 
