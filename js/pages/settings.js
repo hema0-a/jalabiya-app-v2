@@ -1,35 +1,35 @@
 /* ============================================================
    settings.js - صفحة الإعدادات الشاملة (V2)
-   (معلومات الورشة + الألوان + الأمان PIN + النسخ الاحتياطي + منطقة الخطر)
+   (معلومات + ألوان + أوضاع العرض + أمان + نسخ احتياطي)
    ============================================================ */
 
 import * as db from '../core/db.js';
 import { toast } from '../ui/toast.js';
-import { saveTheme } from '../core/theme.js';
+import { saveTheme, setDisplayMode, applyDisplayModes } from '../core/theme.js';
 import { changePin } from '../core/auth.js';
 import { APP_CONFIG, DEFAULT_SETTINGS } from '../core/config.js';
 import * as storage from '../core/storage.js';
 
 export function renderSettingsPage(container) {
-  // جلب الإعدادات الحالية أو الافتراضية
   const settings = storage.loadSettings() || { ...DEFAULT_SETTINGS };
   const currentTheme = settings.theme || DEFAULT_SETTINGS.theme;
   const currentLogo = settings.workshopLogo || null;
   const currentName = settings.workshopName || DEFAULT_SETTINGS.workshopName;
+  const referralPercent = settings.referralRewardPercent || 5;
 
   container.innerHTML = `
     <div class="card">
       <h2 class="card-title">⚙️ الإعدادات</h2>
 
       <!-- ============================================================
-           قسم معلومات الورشة
+           معلومات الورشة
            ============================================================ -->
       <div class="card" style="background: var(--bg-color); border: none; margin-bottom: 16px;">
         <h3 style="font-size: 16px; margin-bottom: 12px;">🏢 معلومات الورشة</h3>
         
         <div class="form-group">
           <label>اسم الورشة</label>
-          <input type="text" id="workshop-name" class="form-control" value="${currentName}" placeholder="مثال: ورشة تفصيل الجلابيب">
+          <input type="text" id="workshop-name" class="form-control" value="${currentName}">
         </div>
         
         <div class="form-group">
@@ -53,7 +53,7 @@ export function renderSettingsPage(container) {
       </div>
 
       <!-- ============================================================
-           قسم تخصيص الألوان
+           تخصيص الألوان
            ============================================================ -->
       <div class="card" style="background: var(--bg-color); border: none; margin-bottom: 16px;">
         <h3 style="font-size: 16px; margin-bottom: 12px;">🎨 تخصيص الألوان</h3>
@@ -78,31 +78,76 @@ export function renderSettingsPage(container) {
       </div>
 
       <!-- ============================================================
-           قسم الأمان (تغيير PIN)
+           أوضاع العرض
+           ============================================================ -->
+      <div class="card" style="background: var(--bg-color); border: none; margin-bottom: 16px;">
+        <h3 style="font-size: 16px; margin-bottom: 12px;">👁️ أوضاع العرض</h3>
+        
+        <div class="form-group">
+          <label style="display: flex; align-items: center; justify-content: space-between; cursor: pointer; padding: 10px; background: var(--surface-color); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+            <span>
+              <strong>🌙 الوضع الليلي</strong>
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">ألوان داكنة مريحة للعين</div>
+            </span>
+            <input type="checkbox" id="toggle-dark" ${settings.darkMode ? 'checked' : ''} style="width: 22px; height: 22px; cursor: pointer;">
+          </label>
+        </div>
+        
+        <div class="form-group">
+          <label style="display: flex; align-items: center; justify-content: space-between; cursor: pointer; padding: 10px; background: var(--surface-color); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+            <span>
+              <strong>🔲 التباين العالي</strong>
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">حدود أوضح لضعاف البصر</div>
+            </span>
+            <input type="checkbox" id="toggle-contrast" ${settings.highContrast ? 'checked' : ''} style="width: 22px; height: 22px; cursor: pointer;">
+          </label>
+        </div>
+        
+        <div class="form-group">
+          <label style="display: flex; align-items: center; justify-content: space-between; cursor: pointer; padding: 10px; background: var(--surface-color); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+            <span>
+              <strong>📏 الوضع المضغوط</strong>
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">مساحات أصغر لعرض أكثر</div>
+            </span>
+            <input type="checkbox" id="toggle-compact" ${settings.compactMode ? 'checked' : ''} style="width: 22px; height: 22px; cursor: pointer;">
+          </label>
+        </div>
+        
+        <div class="form-group">
+          <label style="display: flex; align-items: center; justify-content: space-between; cursor: pointer; padding: 10px; background: var(--surface-color); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+            <span>
+              <strong>👁️ وضع العميل</strong>
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">إخفاء الأرقام المالية الحساسة</div>
+            </span>
+            <input type="checkbox" id="toggle-client" ${settings.clientMode ? 'checked' : ''} style="width: 22px; height: 22px; cursor: pointer;">
+          </label>
+        </div>
+      </div>
+
+      <!-- ============================================================
+           الأمان (PIN)
            ============================================================ -->
       <div class="card" style="background: var(--bg-color); border: none; margin-bottom: 16px;">
         <h3 style="font-size: 16px; margin-bottom: 12px;">🔒 الأمان</h3>
         <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
-          قم بتغيير الرقم السري (PIN) لحماية التطبيق. الرقم يجب أن يكون 4 أرقام.
+          قم بتغيير الرقم السري (PIN) لحماية التطبيق.
         </p>
-        
         <button class="btn btn-primary btn-full" id="change-pin-btn">🔑 تغيير الرقم السري</button>
       </div>
 
       <!-- ============================================================
-           قسم النسخ الاحتياطي
+           النسخ الاحتياطي
            ============================================================ -->
       <div class="card" style="background: var(--bg-color); border: none; margin-bottom: 16px;">
         <h3 style="font-size: 16px; margin-bottom: 12px;">💾 النسخ الاحتياطي والاستيراد</h3>
         <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
-          يمكنك تصدير بياناتك كملف نسخة احتياطية، أو استيراد ملف سابق لاستعادة البيانات.
+          تصدير بياناتك كملف نسخة احتياطية، أو استيراد ملف سابق.
         </p>
         
         <div style="display: flex; flex-direction: column; gap: 10px;">
-          <button class="btn btn-primary" id="export-btn">📤 تصدير البيانات (نسخ احتياطي)</button>
-          
+          <button class="btn btn-primary" id="export-btn">📤 تصدير البيانات</button>
           <label for="import-file" class="btn btn-outline" style="cursor: pointer; text-align: center; display: block;">
-            📥 استيراد البيانات (استعادة)
+            📥 استيراد البيانات
           </label>
           <input type="file" id="import-file" accept=".json" style="display: none;">
         </div>
@@ -114,7 +159,7 @@ export function renderSettingsPage(container) {
       <div class="card" style="background: #fff5f5; border: 1px solid #f5c6cb; border-radius: var(--radius-lg);">
         <h3 style="font-size: 16px; color: #dc3545; margin-bottom: 12px;">⚠️ منطقة الخطر</h3>
         <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
-          حذف جميع البيانات نهائياً. لا يمكن التراجع عن هذه العملية.
+          حذف جميع البيانات نهائياً. لا يمكن التراجع.
         </p>
         <button class="btn btn-danger" id="reset-btn">🗑️ حذف جميع البيانات</button>
       </div>
@@ -122,7 +167,7 @@ export function renderSettingsPage(container) {
   `;
 
   // ============================================================
-  // أحداث معلومات الورشة
+  // معلومات الورشة
   // ============================================================
   const logoInput = container.querySelector('#logo-file');
   const logoPreview = container.querySelector('#logo-preview');
@@ -132,14 +177,11 @@ export function renderSettingsPage(container) {
   logoInput.addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file) return;
-
-    // التحقق من حجم الملف
     const sizeKB = file.size / 1024;
     if (sizeKB > APP_CONFIG.maxFileSizeKB) {
       toast.error(`حجم الصورة كبير جداً. الحد الأقصى ${APP_CONFIG.maxFileSizeKB}KB`);
       return;
     }
-
     const reader = new FileReader();
     reader.onload = (event) => {
       tempLogo = event.target.result;
@@ -170,21 +212,18 @@ export function renderSettingsPage(container) {
       toast.error('الرجاء إدخال اسم الورشة');
       return;
     }
-    
     let s = storage.loadSettings() || { ...DEFAULT_SETTINGS };
     s.workshopName = newName;
     s.workshopLogo = tempLogo;
     storage.saveSettings(s);
-    
     toast.success('تم حفظ المعلومات بنجاح');
     setTimeout(() => window.location.reload(), 800);
   });
 
   // ============================================================
-  // أحداث الألوان
+  // الألوان
   // ============================================================
-  const saveThemeBtn = container.querySelector('#save-theme-btn');
-  saveThemeBtn.addEventListener('click', () => {
+  container.querySelector('#save-theme-btn').addEventListener('click', () => {
     const theme = {
       primary: document.getElementById('color-primary').value,
       accent: document.getElementById('color-accent').value,
@@ -194,8 +233,7 @@ export function renderSettingsPage(container) {
     toast.success('تم حفظ الألوان بنجاح');
   });
 
-  const resetThemeBtn = container.querySelector('#reset-theme-btn');
-  resetThemeBtn.addEventListener('click', () => {
+  container.querySelector('#reset-theme-btn').addEventListener('click', () => {
     if (confirm('هل تريد استعادة الألوان الافتراضية؟')) {
       saveTheme(DEFAULT_SETTINGS.theme);
       renderSettingsPage(container);
@@ -204,12 +242,35 @@ export function renderSettingsPage(container) {
   });
 
   // ============================================================
-  // حدث تغيير الـ PIN
+  // أوضاع العرض
   // ============================================================
-  const changePinBtn = container.querySelector('#change-pin-btn');
-  changePinBtn.addEventListener('click', () => {
+  container.querySelector('#toggle-dark').addEventListener('change', (e) => {
+    setDisplayMode('darkMode', e.target.checked);
+    // تحديث أيقونة الشريط العلوي
+    const topbarBtn = document.getElementById('dark-mode-toggle');
+    if (topbarBtn) topbarBtn.textContent = e.target.checked ? '☀️' : '🌙';
+    toast.success(e.target.checked ? 'تم تفعيل الوضع الليلي' : 'تم إلغاء الوضع الليلي');
+  });
+
+  container.querySelector('#toggle-contrast').addEventListener('change', (e) => {
+    setDisplayMode('highContrast', e.target.checked);
+  });
+
+  container.querySelector('#toggle-compact').addEventListener('change', (e) => {
+    setDisplayMode('compactMode', e.target.checked);
+  });
+
+  container.querySelector('#toggle-client').addEventListener('change', (e) => {
+    setDisplayMode('clientMode', e.target.checked);
+    toast.info(e.target.checked ? 'وضع العميل مفعّل: الأرقام المالية مخفية' : 'وضع العميل ملغي');
+  });
+
+  // ============================================================
+  // تغيير PIN
+  // ============================================================
+  container.querySelector('#change-pin-btn').addEventListener('click', () => {
     const formHtml = `
-      <h3 class="card-title">🔑 تغيير الرقم السري</h3>
+      <h3 class="card-title no-border">🔑 تغيير الرقم السري</h3>
       <form id="pin-form">
         <div class="form-group">
           <label>الرقم السري الحالي *</label>
@@ -225,59 +286,52 @@ export function renderSettingsPage(container) {
         </div>
         <div class="flex-between mt-2">
           <button type="button" class="btn btn-outline" id="cancel-pin-btn">إلغاء</button>
-          <button type="submit" class="btn btn-primary">تغيير الرقم</button>
+          <button type="submit" class="btn btn-primary">تغيير</button>
         </div>
       </form>
     `;
 
-    openModal(formHtml);
+    // استيراد openModal ديناميكياً لتجنب الاعتماد الدائري
+    import('../ui/modal.js').then(({ openModal, closeModal }) => {
+      openModal(formHtml);
 
-    const form = document.getElementById('pin-form');
-    form.addEventListener('submit', (e) => {
-      e.preventDefault();
+      const form = document.getElementById('pin-form');
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const oldPin = document.getElementById('old-pin').value.trim();
+        const newPin = document.getElementById('new-pin').value.trim();
+        const confirmPin = document.getElementById('confirm-pin').value.trim();
 
-      const oldPin = document.getElementById('old-pin').value.trim();
-      const newPin = document.getElementById('new-pin').value.trim();
-      const confirmPin = document.getElementById('confirm-pin').value.trim();
+        const dbState = storage.loadDB();
+        const correctPin = dbState ? (dbState.password || '0000') : '0000';
+        if (oldPin !== String(correctPin)) {
+          toast.error('الرقم السري الحالي غير صحيح');
+          return;
+        }
+        if (!/^\d{4}$/.test(newPin)) {
+          toast.error('الرقم الجديد يجب أن يكون 4 أرقام');
+          return;
+        }
+        if (newPin !== confirmPin) {
+          toast.error('الرقم الجديد وتأكيده غير متطابقين');
+          return;
+        }
+        if (changePin(newPin)) {
+          toast.success('تم تغيير الرقم السري بنجاح');
+          closeModal();
+        } else {
+          toast.error('فشل تغيير الرقم السري');
+        }
+      });
 
-      // 1. التحقق من الرقم الحالي
-      const dbState = storage.loadDB();
-      const correctPin = dbState ? (dbState.password || '0000') : '0000';
-      if (oldPin !== String(correctPin)) {
-        toast.error('الرقم السري الحالي غير صحيح');
-        return;
-      }
-
-      // 2. التحقق من صيغة الرقم الجديد
-      if (!/^\d{4}$/.test(newPin)) {
-        toast.error('الرقم الجديد يجب أن يكون 4 أرقام');
-        return;
-      }
-
-      // 3. التحقق من التطابق
-      if (newPin !== confirmPin) {
-        toast.error('الرقم الجديد وتأكيده غير متطابقين');
-        return;
-      }
-
-      // 4. تغيير الرقم
-      const success = changePin(newPin);
-      if (success) {
-        toast.success('تم تغيير الرقم السري بنجاح');
-        closeModal();
-      } else {
-        toast.error('فشل تغيير الرقم السري');
-      }
+      document.getElementById('cancel-pin-btn').addEventListener('click', closeModal);
     });
-
-    document.getElementById('cancel-pin-btn').addEventListener('click', closeModal);
   });
 
   // ============================================================
-  // أحداث النسخ الاحتياطي
+  // النسخ الاحتياطي
   // ============================================================
-  const exportBtn = container.querySelector('#export-btn');
-  exportBtn.addEventListener('click', () => {
+  container.querySelector('#export-btn').addEventListener('click', () => {
     const data = db.getStateCopy();
     const jsonString = JSON.stringify(data, null, 2);
     const blob = new Blob([jsonString], { type: 'application/json' });
@@ -294,21 +348,17 @@ export function renderSettingsPage(container) {
     toast.success('تم تصدير البيانات بنجاح');
   });
 
-  const importInput = container.querySelector('#import-file');
-  importInput.addEventListener('change', (e) => {
+  container.querySelector('#import-file').addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
         const importedData = JSON.parse(event.target.result);
-        
         if (!importedData || typeof importedData !== 'object') {
           toast.error('ملف غير صالح');
           return;
         }
-
         if (confirm('هل أنت متأكد من استيراد هذه البيانات؟ سيتم استبدال البيانات الحالية.')) {
           db.setState(importedData);
           toast.success('تم استيراد البيانات بنجاح!');
@@ -320,16 +370,15 @@ export function renderSettingsPage(container) {
       }
     };
     reader.readAsText(file);
-    importInput.value = '';
+    e.target.value = '';
   });
 
   // ============================================================
-  // حدث حذف البيانات
+  // حذف البيانات
   // ============================================================
-  const resetBtn = container.querySelector('#reset-btn');
-  resetBtn.addEventListener('click', () => {
+  container.querySelector('#reset-btn').addEventListener('click', () => {
     if (confirm('هل أنت متأكد تماماً؟ سيتم حذف جميع البيانات نهائياً!')) {
-      if (confirm('تأكيد أخير: هل أنت متأكد؟ لا يمكن التراجع!')) {
+      if (confirm('تأكيد أخير: لا يمكن التراجع!')) {
         db.reset();
         toast.success('تم حذف جميع البيانات');
         setTimeout(() => window.location.reload(), 1000);
