@@ -27,11 +27,19 @@ export function renderSidebar() {
       ]
     },
     {
-      title: 'الإدارة',
+      title: 'إدارة الورشة',
       items: [
         { path: '/inventory', label: 'المخزون', icon: '📦' },
         { path: '/workers', label: 'العمال', icon: '👷' },
-        { path: '/expenses', label: 'المصروفات', icon: '💸' }
+        { path: '/expenses', label: 'مصروفات الورشة', icon: '💸' }
+      ]
+    },
+    {
+      title: 'المالية الشخصية',
+      items: [
+        { path: '/commitments', label: 'الالتزامات', icon: '💳' },
+        { path: '/house-expenses', label: 'مصاريف البيت', icon: '🏠' },
+        { path: '/loans', label: 'القروض', icon: '💵' }
       ]
     },
     {
@@ -67,7 +75,6 @@ export function renderSidebar() {
   // إضافة تفاعل عند النقر على عنصر في القائمة
   sidebar.querySelectorAll('.sidebar-item').forEach(item => {
     item.addEventListener('click', () => {
-      // إغلاق القائمة تلقائياً على شاشات الجوال
       if (window.innerWidth <= 768) {
         closeSidebar();
       }
