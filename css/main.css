@@ -1,0 +1,93 @@
+/* ============================================================
+   main.css - الأساس البصري والهيكلي (V2)
+   ============================================================ */
+
+/* 1. المتغيرات الأساسية (سنستخدمها في كل مكان لتسهيل التعديل لاحقاً) */
+:root {
+  /* الألوان الأساسية */
+  --primary-color: #1F6D57;
+  --primary-dark: #123C2F;
+  --accent-color: #B8863B;
+  --bg-color: #F6F1E6;
+  --surface-color: #FFFFFF;
+  --text-main: #242420;
+  --text-muted: #847C6C;
+  --border-color: #E0D8C8;
+  
+  /* الخطوط والقياسات */
+  --font-family: Tahoma, Arial, sans-serif;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  
+  /* الظلال والحركة */
+  --shadow-sm: 0 2px 8px rgba(0,0,0,0.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
+  --transition: all 0.3s ease;
+}
+
+/* 2. إعادة ضبط المتصفح (Reset) لضمان توافق جميع الأجهزة */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* 3. تنسيقات الجسم الأساسية (Body) */
+body {
+  font-family: var(--font-family);
+  background-color: var(--bg-color);
+  color: var(--text-main);
+  direction: rtl; /* لضمان أن التطبيق من اليمين لليسار */
+  min-height: 100vh;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased; /* لتحسين وضوح الخطوط على الجوال */
+}
+
+/* 4. تنسيق العناوين والنصوص */
+h1, h2, h3, h4 { 
+  font-weight: 800; 
+  color: var(--primary-dark); 
+  margin-bottom: 8px; 
+}
+
+p { 
+  color: var(--text-muted); 
+  margin-bottom: 16px; 
+}
+
+a { 
+  color: var(--primary-color); 
+  text-decoration: none; 
+}
+
+/* 5. هيكل التطبيق الأساسي (Layout) */
+#app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.app-container {
+  display: flex;
+  flex: 1;
+  overflow: hidden; /* لمنع التمرير المزدوج */
+}
+
+.main-content {
+  flex: 1;
+  padding: 16px;
+  overflow-y: auto;
+  background-color: var(--bg-color);
+}
+
+/* 6. تنسيق شريط التمرير (Scrollbar) ليناسب الجوال */
+::-webkit-scrollbar { 
+  width: 6px; 
+}
+::-webkit-scrollbar-track { 
+  background: transparent; 
+}
+::-webkit-scrollbar-thumb { 
+  background: var(--border-color); 
+  border-radius: 10px; 
+}
