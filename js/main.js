@@ -27,13 +27,16 @@ import { renderWorkersPage } from './pages/workers.js';
 import { renderExpensesPage } from './pages/expenses.js';
 import { renderPricingCalculatorPage } from './pages/pricing-calculator.js';
 
+// استيراد الصفحات - التسويق والعرض
+import { renderPortfolioPage } from './pages/portfolio.js';
+import { renderReferralsPage } from './pages/referrals.js';
+
 // استيراد الصفحات - المالية الشخصية
 import { renderCommitmentsPage } from './pages/commitments.js';
 import { renderHouseExpensesPage } from './pages/house-expenses.js';
 import { renderLoansPage } from './pages/loans.js';
 
-// استيراد الصفحات - الميزات المتقدمة
-import { renderReferralsPage } from './pages/referrals.js';
+// استيراد الصفحات - النظام
 import { renderActivityLogPage } from './pages/activity-log.js';
 import { renderTrashPage } from './pages/trash.js';
 
@@ -111,13 +114,16 @@ function startApp() {
   router.register('/expenses', renderExpensesPage);
   router.register('/pricing-calculator', renderPricingCalculatorPage);
   
+  // التسويق والعرض
+  router.register('/portfolio', renderPortfolioPage);
+  router.register('/referrals', renderReferralsPage);
+  
   // المالية الشخصية
   router.register('/commitments', renderCommitmentsPage);
   router.register('/house-expenses', renderHouseExpensesPage);
   router.register('/loans', renderLoansPage);
   
-  // الميزات المتقدمة
-  router.register('/referrals', renderReferralsPage);
+  // النظام
   router.register('/activity-log', renderActivityLogPage);
   router.register('/trash', renderTrashPage);
   
