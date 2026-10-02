@@ -682,6 +682,49 @@ export function deletePortfolioItem(id) {
   events.emit('portfolio:deleted', item);
   return true;
 }
+/* ============================================================
+   قسم أنواع الجلابيات (Garment Types)
+   ============================================================ */
+
+export function getGarmentTypes() { return state.garmentTypes; }
+
+export function getGarmentType(id) {
+  if (!id) return null;
+  return state.garmentTypes.find(g => g.id === id) || null;
+}
+
+export function addGarmentType(type) {
+  const newType = {
+    ...type,
+    id: type.id || uid(),
+    price: Number(type.price) || 0,
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  state.garmentTypes.push(newType);
+  save();
+  events.emit('garmentType:added', newType);
+  return newType;
+}
+
+export function updateGarmentType(id, updates) {
+  const type = getGarmentType(id);
+  if (!type) return null;
+  Object.assign(type, updates, { updatedAt: Date.now() });
+  save();
+  events.emit('garmentType:updated', type);
+  return type;
+}
+
+export function deleteGarmentType(id) {
+  const idx = state.garmentTypes.findIndex(g => g.id === id);
+  if (idx === -1) return false;
+  const [type] = state.garmentTypes.splice(idx, 1);
+  state.trash.push({ id: uid(), type: 'garmentType', data: type, deletedAt: today() });
+  save();
+  events.emit('garmentType:deleted', type);
+  return true;
+}
 
 /* ============================================================
    أحداث الحفظ التلقائي
