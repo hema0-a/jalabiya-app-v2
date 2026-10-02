@@ -4,6 +4,7 @@
 
 import * as db from '../core/db.js';
 import { toast } from '../ui/toast.js';
+import { openModal, closeModal } from '../ui/modal.js';
 
 export function renderCustomersPage(container) {
   const customers = db.getCustomers();
@@ -44,11 +45,58 @@ export function renderCustomersPage(container) {
   html += `</div>`;
   container.innerHTML = html;
 
-  // ربط زر الإضافة
+  // ربط زر الإضافة بفتح النافذة المنبثقة
   const addBtn = container.querySelector('#add-customer-btn');
   if (addBtn) {
     addBtn.addEventListener('click', () => {
-      toast.info('سيتم إضافة نموذج إضافة العميل في المرحلة القادمة!');
+      // 1. تعريف نموذج الإدخال (HTML)
+      const formHtml = `
+        <h3 class="card-title">إضافة عميل جديد</h3>
+        <form id="customer-form">
+          <div class="form-group">
+            <label>اسم العميل *</label>
+            <input type="text" id="customer-name" class="form-control" placeholder="مثال: أحمد محمد" required>
+          </div>
+          <div class="form-group">
+            <label>رقم الهاتف (اختياري)</label>
+            <input type="tel" id="customer-phone" class="form-control" placeholder="01xxxxxxxxx">
+          </div>
+          <div class="flex-between mt-2">
+            <button type="button" class="btn btn-outline" id="cancel-btn">إلغاء</button>
+            <button type="submit" class="btn btn-primary">حفظ العميل</button>
+          </div>
+        </form>
+      `;
+      
+      // 2. فتح النافذة المنبثقة
+      openModal(formHtml);
+
+      // 3. التعامل مع حفظ النموذج
+      const form = document.getElementById('customer-form');
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        
+        const name = document.getElementById('customer-name').value.trim();
+        const phone = document.getElementById('customer-phone').value.trim();
+        
+        if (!name) {
+          toast.error('الرجاء إدخال اسم العميل');
+          return;
+        }
+
+        // حفظ في قاعدة البيانات
+        db.addCustomer({ name, phone });
+        
+        // إغلاق النافذة وإظهار رسالة نجاح
+        closeModal();
+        toast.success('تم إضافة العميل بنجاح');
+        
+        // إعادة عرض الصفحة لتحديث القائمة فوراً
+        renderCustomersPage(container);
+      });
+
+      // 4. التعامل مع زر الإلغاء
+      document.getElementById('cancel-btn').addEventListener('click', closeModal);
     });
   }
 }
