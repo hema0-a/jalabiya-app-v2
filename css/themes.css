@@ -2,34 +2,237 @@
    themes.css - الألوان والوضع الليلي (V2)
    ============================================================ */
 
-/* 1. الوضع الليلي (Dark Mode)
-   عند إضافة الكلاس "dark-mode" إلى وسم <body>، سيتم تغيير الألوان تلقائياً */
+/* ============================================================
+   1. الوضع الليلي (Dark Mode)
+   ============================================================ */
 body.dark-mode {
-  --bg-color: #121212;          /* خلفية داكنة جداً */
-  --surface-color: #1E1E1E;     /* خلفية البطاقات والقوائم */
-  --text-main: #E0E0E0;         /* النص الأساسي فاتح */
-  --text-muted: #A0A0A0;        /* النص الثانوي رمادي */
-  --border-color: #333333;      /* لون الحدود */
-  --primary-dark: #4CAF50;      /* تعديل اللون الأساسي ليكون أوضح في الوضع الداكن */
-  --shadow-sm: 0 2px 8px rgba(0,0,0,0.3);
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.5);
+  /* الخلفيات والأسطح */
+  --bg-color: #0F0F0F;
+  --bg-elevated: #1A1A1A;
+  --surface-color: #1E1E1E;
+  --surface-hover: #2A2A2A;
+  --border-color: #333333;
+  --border-strong: #444444;
+  
+  /* النصوص */
+  --text-main: #F0F0F0;
+  --text-secondary: #B0B0B0;
+  --text-muted: #808080;
+  --text-inverse: #0F0F0F;
+  
+  /* الألوان الأساسية (تفتيح للأفضلية في الوضع الداكن) */
+  --primary-light: #4CAF50;
+  --primary-dark: #2E7D32;
+  --accent-light: #D4A55C;
+  
+  /* الألوان الوظيفية */
+  --success-bg: #1B3A1D;
+  --warning-bg: #3D2E1B;
+  --danger-bg: #3D1B1B;
+  --info-bg: #1B2D3D;
+  
+  /* الظلال (أعمق للوضع الداكن) */
+  --shadow-xs: 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 6px rgba(0,0,0,0.4), 0 2px 4px rgba(0,0,0,0.3);
+  --shadow-lg: 0 10px 15px rgba(0,0,0,0.5), 0 4px 6px rgba(0,0,0,0.4);
+  --shadow-xl: 0 20px 25px rgba(0,0,0,0.6), 0 10px 10px rgba(0,0,0,0.4);
 }
 
-/* 2. ثيمات ألوان إضافية (اختيارية للمستقبل)
-   يمكن استخدامها لتغيير هوية التطبيق بضغطة زر */
+/* تحسينات إضافية للوضع الليلي */
+body.dark-mode {
+  background-color: var(--bg-color);
+  color: var(--text-main);
+}
+
+body.dark-mode .card {
+  background-color: var(--surface-color);
+  border-color: var(--border-color);
+}
+
+body.dark-mode .form-control {
+  background-color: var(--bg-elevated);
+  border-color: var(--border-color);
+  color: var(--text-main);
+}
+
+body.dark-mode .form-control:focus {
+  background-color: var(--surface-color);
+  border-color: var(--primary-light);
+  box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.15);
+}
+
+body.dark-mode .sidebar {
+  background: linear-gradient(180deg, #1A1A1A, #0F0F0F);
+  border-color: var(--border-color);
+}
+
+body.dark-mode .sidebar-item:hover {
+  background-color: var(--surface-hover);
+}
+
+body.dark-mode .topbar {
+  background-color: rgba(26, 26, 26, 0.95);
+  border-color: var(--border-color);
+}
+
+body.dark-mode .modal-content {
+  background-color: var(--surface-color);
+  border-color: var(--border-color);
+}
+
+body.dark-mode .toast {
+  background-color: #2A2A2A;
+  border-right-color: var(--primary-light);
+}
+
+/* ============================================================
+   2. الثيمات الجاهزة (Preset Themes)
+   ============================================================ */
+
+/* الثيم الأزرق - احترافي هادئ */
 body.theme-blue {
-  --primary-color: #1E88E5;
+  --primary-color: #1565C0;
+  --primary-light: #1E88E5;
   --primary-dark: #0D47A1;
-  --accent-color: #64B5F6;
+  --accent-color: #00ACC1;
+  --accent-light: #26C6DA;
 }
 
+/* الثيم البنفسجي - فخم */
+body.theme-purple {
+  --primary-color: #6A1B9A;
+  --primary-light: #8E24AA;
+  --primary-dark: #4A148C;
+  --accent-color: #E91E63;
+  --accent-light: #F06292;
+}
+
+/* الثيم الأحمر - جذاب */
 body.theme-red {
-  --primary-color: #E53935;
-  --primary-dark: #B71C1C;
-  --accent-color: #EF9A9A;
+  --primary-color: #C62828;
+  --primary-light: #E53935;
+  --primary-dark: #8E0000;
+  --accent-color: #F57C00;
+  --accent-light: #FFB74D;
 }
 
-/* 3. تأثيرات انتقالية سلسة عند تغيير الثيم */
-body {
-  transition: background-color 0.3s ease, color 0.3s ease;
+/* الثيم الذهبي - راقي */
+body.theme-gold {
+  --primary-color: #B8863B;
+  --primary-light: #D4A55C;
+  --primary-dark: #7A5A1F;
+  --accent-color: #1F6D57;
+  --accent-light: #2E8B6F;
+}
+
+/* ============================================================
+   3. تأثيرات انتقالية سلسة عند تغيير الثيم
+   ============================================================ */
+body,
+.card,
+.form-control,
+.sidebar,
+.topbar,
+.modal-content,
+.toast,
+.stat-card {
+  transition: 
+    background-color var(--transition-base),
+    color var(--transition-base),
+    border-color var(--transition-base),
+    box-shadow var(--transition-base);
+}
+
+/* ============================================================
+   4. الوضع عالي التباين (High Contrast)
+   ============================================================ */
+body.high-contrast {
+  --border-color: #000000;
+  --border-strong: #000000;
+  --text-muted: #333333;
+}
+
+body.high-contrast.dark-mode {
+  --border-color: #FFFFFF;
+  --border-strong: #FFFFFF;
+  --text-muted: #CCCCCC;
+}
+
+body.high-contrast .card {
+  border-width: 2px;
+}
+
+body.high-contrast .form-control {
+  border-width: 2px;
+}
+
+body.high-contrast .sidebar-item.active {
+  background-color: var(--primary-color);
+  color: var(--text-inverse);
+}
+
+/* ============================================================
+   5. الوضع المضغوط (Compact Mode)
+   ============================================================ */
+body.compact-mode {
+  --space-3: 8px;
+  --space-4: 10px;
+  --space-5: 14px;
+  --font-size-base: 13px;
+}
+
+body.compact-mode .card {
+  padding: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+body.compact-mode .list-item {
+  padding: 8px 10px;
+}
+
+body.compact-mode .sidebar-item {
+  padding: 10px var(--space-3);
+}
+
+/* ============================================================
+   6. حجم الخط (Font Size Scales)
+   ============================================================ */
+body.font-large {
+  --font-size-base: 16px;
+  --font-size-sm: 14px;
+  --font-size-md: 18px;
+  --font-size-lg: 20px;
+  --font-size-xl: 24px;
+  --font-size-2xl: 30px;
+}
+
+body.font-xlarge {
+  --font-size-base: 18px;
+  --font-size-sm: 16px;
+  --font-size-md: 20px;
+  --font-size-lg: 22px;
+  --font-size-xl: 26px;
+  --font-size-2xl: 34px;
+}
+
+/* ============================================================
+   7. أوضاع العرض الخاصة (Display Modes)
+   ============================================================ */
+
+/* وضع العميل (إخفاء الأرقام المالية) */
+body.client-mode .money-sensitive {
+  filter: blur(5px);
+  user-select: none;
+  cursor: not-allowed;
+}
+
+/* وضع كشك (شاشة كاملة) */
+body.kiosk-mode .sidebar,
+body.kiosk-mode .topbar {
+  display: none;
+}
+
+body.kiosk-mode .main-wrapper {
+  margin-right: 0;
 }
