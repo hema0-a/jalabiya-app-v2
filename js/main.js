@@ -10,6 +10,7 @@ import { initModal } from './ui/modal.js';
 import { renderSidebar } from './ui/sidebar.js';
 import { renderTopbar } from './ui/topbar.js';
 import { router } from './ui/router.js';
+import { renderCustomersPage } from './pages/customers.js';
 
 console.log(`🚀 ${APP_CONFIG.name} v${APP_CONFIG.version}`);
 
@@ -26,6 +27,7 @@ async function init() {
     
     // تسجيل الصفحات في الراوتر (سنضيف المزيد لاحقاً)
     router.register('/dashboard', renderDashboardPage);
+     router.register('/customers', renderCustomersPage);
     router.register('/404', render404Page);
 
     // تشغيل الراوتر ليبدأ عرض الصفحات
