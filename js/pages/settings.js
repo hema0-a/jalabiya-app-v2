@@ -16,6 +16,7 @@ export function renderSettingsPage(container) {
   const currentLogo = settings.workshopLogo || null;
   const currentName = settings.workshopName || DEFAULT_SETTINGS.workshopName;
   const referralPercent = settings.referralRewardPercent || 5;
+   const dailyLimit = settings.dailyOrderLimit || 700;
 
   container.innerHTML = `
     <div class="card">
