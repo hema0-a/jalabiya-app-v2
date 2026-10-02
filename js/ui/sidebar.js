@@ -32,7 +32,8 @@ export function renderSidebar() {
       items: [
         { path: '/inventory', label: 'المخزون', icon: '📦' },
         { path: '/workers', label: 'العمال', icon: '👷' },
-        { path: '/expenses', label: 'مصروفات الورشة', icon: '💸' }
+        { path: '/expenses', label: 'مصروفات الورشة', icon: '💸' },
+        { path: '/pricing-calculator', label: 'حاسبة التسعير', icon: '🧮' }
       ]
     },
     {
@@ -100,7 +101,6 @@ export function renderSidebar() {
         item.classList.remove('active');
       }
     });
-    // تحديث عداد السلة
     updateTrashBadge();
   });
 
@@ -109,7 +109,6 @@ export function renderSidebar() {
   events.on('trash:emptied', updateTrashBadge);
   events.on('trash:permanentlyDeleted', updateTrashBadge);
 
-  // تحديث أول مرة
   setTimeout(updateTrashBadge, 100);
 
   function updateTrashBadge() {
