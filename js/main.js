@@ -11,6 +11,7 @@ import { renderSidebar } from './ui/sidebar.js';
 import { renderTopbar } from './ui/topbar.js';
 import { router } from './ui/router.js';
 import { loadTheme } from './core/theme.js';
+import { initAuth, startIdleTimer } from './core/auth.js';
 
 // استيراد الصفحات
 import { renderDashboardPage } from './pages/dashboard.js';
@@ -19,9 +20,13 @@ import { renderOrdersPage } from './pages/orders.js';
 import { renderPaymentsPage } from './pages/payments.js';
 import { renderReportsPage } from './pages/reports.js';
 import { renderSettingsPage } from './pages/settings.js';
+import { renderExpensesPage } from './pages/expenses.js';
 
 console.log(`🚀 ${APP_CONFIG.name} v${APP_CONFIG.version}`);
 
+/* ============================================================
+   الدالة الرئيسية للتهيئة
+   ============================================================ */
 async function init() {
   try {
     console.log('📦 تحميل البيانات...');
@@ -33,43 +38,73 @@ async function init() {
     console.log('🎨 تهيئة الواجهة...');
     initToast();
     initModal();
-    
-    renderAppLayout();
-    
-    // تسجيل الصفحات في الراوتر
-    router.register('/dashboard', renderDashboardPage);
-    router.register('/customers', renderCustomersPage);
-    router.register('/orders', renderOrdersPage);
-    router.register('/payments', renderPaymentsPage);
-    router.register('/reports', renderReportsPage);
-    router.register('/settings', renderSettingsPage);
 
-    // تشغيل الراوتر
-    router.init('.main-content');
+    // ============================================================
+    // تهيئة نظام القفل (Auth)
+    // ============================================================
+    console.log('🔒 تهيئة نظام القفل...');
+    const isUnlocked = initAuth();
 
-    console.log('✅ التطبيق جاهز');
+    if (!isUnlocked) {
+      // التطبيق مقفل → انتظر حدث فتح القفل لبدء التطبيق
+      console.log('🔒 التطبيق مقفل. في انتظار الـ PIN...');
+      events.on('auth:unlocked', () => {
+        console.log('🔓 تم فتح القفل. بدء التطبيق...');
+        startApp();
+      });
+      return;
+    }
+
+    // التطبيق مفتوح من البداية (جلسة سابقة)
+    startApp();
   } catch (e) {
     console.error('❌ فشل التهيئة:', e);
     showError(e);
   }
 }
 
-/* بناء الهيكل الأساسي للتطبيق */
+/* ============================================================
+   بدء التطبيق (بعد فتح القفل أو في حال وجود جلسة)
+   ============================================================ */
+function startApp() {
+  renderAppLayout();
+
+  // تسجيل الصفحات في الراوتر
+  router.register('/dashboard', renderDashboardPage);
+  router.register('/customers', renderCustomersPage);
+  router.register('/orders', renderOrdersPage);
+  router.register('/payments', renderPaymentsPage);
+  router.register('/expenses', renderExpensesPage);
+  router.register('/reports', renderReportsPage);
+  router.register('/settings', renderSettingsPage);
+
+  // تشغيل الراوتر
+  router.init('.main-content');
+
+  // بدء مؤقت القفل التلقائي
+  startIdleTimer();
+
+  console.log('✅ التطبيق جاهز');
+}
+
+/* ============================================================
+   بناء الهيكل الأساسي للتطبيق
+   ============================================================ */
 function renderAppLayout() {
   const app = document.getElementById('app');
   if (!app) return;
-  
-  app.innerHTML = ''; 
+
+  app.innerHTML = '';
 
   const appContainer = document.createElement('div');
   appContainer.className = 'app-container';
-  
+
   const sidebar = renderSidebar();
   appContainer.appendChild(sidebar);
 
   const mainWrapper = document.createElement('div');
   mainWrapper.className = 'main-wrapper';
-  
+
   const topbar = renderTopbar();
   mainWrapper.appendChild(topbar);
 
@@ -81,6 +116,9 @@ function renderAppLayout() {
   app.appendChild(appContainer);
 }
 
+/* ============================================================
+   معالجة الأخطاء
+   ============================================================ */
 function showError(e) {
   document.body.innerHTML = `
     <div style="padding:40px;text-align:center;font-family:sans-serif;">
@@ -91,6 +129,9 @@ function showError(e) {
   `;
 }
 
+/* ============================================================
+   بدء التطبيق عند تحميل الصفحة
+   ============================================================ */
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', init);
 } else {
