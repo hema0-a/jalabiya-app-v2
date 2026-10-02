@@ -15,8 +15,7 @@ export function renderSidebar() {
     { path: '/customers', label: 'العملاء', icon: '👥' },
     { path: '/orders', label: 'الطلبات', icon: '📋' },
     { path: '/payments', label: 'الدفعات', icon: '💰' },
-     { path: '/reports', label: 'التقارير', icon: '📊' },
-    { path: '/expenses', label: 'المصروفات', icon: '💸' },
+    { path: '/reports', label: 'التقارير', icon: '📊' },
     { path: '/settings', label: 'الإعدادات', icon: '⚙️' }
   ];
 
