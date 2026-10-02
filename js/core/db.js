@@ -1,5 +1,7 @@
 /* ============================================================
    db.js - طبقة البيانات الشاملة النهائية (V2)
+   (تشمل: العملاء، الطلبات، الدفعات، المصروفات، المخزون،
+    العمال، المالية الشخصية، الإحالات، معرض الأعمال)
    ============================================================ */
 
 import { APP_CONFIG, DEFAULT_DB } from './config.js';
@@ -28,7 +30,8 @@ export function load() {
         workers: state.workers.length,
         commitments: state.commitments.length,
         houseExpenses: state.houseExpenses.length,
-        personalLoans: state.personalLoans.length
+        personalLoans: state.personalLoans.length,
+        portfolio: state.portfolio.length
       });
     } else {
       state = deepClone(DEFAULT_DB);
@@ -49,6 +52,7 @@ function mergeWithDefaults(saved) {
   ['customers', 'orders', 'payments', 'expenses', 'commitments',
    'commitmentPayments', 'houseExpenses', 'personalLoans', 'loanPayments',
    'savingsGoals', 'inventory', 'workers', 'workerPayments',
+   'referrals', 'referralRewards', 'portfolio',
    'garmentTypes', 'holidays', 'occasions', 'activityLog', 'trash'].forEach(key => {
     if (!Array.isArray(merged[key])) merged[key] = [];
   });
@@ -371,7 +375,7 @@ export function deleteWorkerPayment(id) {
 }
 
 /* ============================================================
-   قسم الالتزامات الشخصية (Commitments)
+   قسم الالتزامات (Commitments)
    ============================================================ */
 
 export function getCommitments() { return state.commitments; }
@@ -410,7 +414,6 @@ export function deleteCommitment(id) {
   if (idx === -1) return false;
   const [commitment] = state.commitments.splice(idx, 1);
   state.trash.push({ id: uid(), type: 'commitment', data: commitment, deletedAt: today() });
-  // حذف دفعاته
   state.commitmentPayments = state.commitmentPayments.filter(p => p.commitmentId !== id);
   save();
   events.emit('commitment:deleted', commitment);
@@ -500,7 +503,7 @@ export function deleteHouseExpense(id) {
 }
 
 /* ============================================================
-   قسم القروض الشخصية (Personal Loans)
+   قسم القروض (Personal Loans)
    ============================================================ */
 
 export function getPersonalLoans() { return state.personalLoans; }
@@ -538,7 +541,6 @@ export function deletePersonalLoan(id) {
   if (idx === -1) return false;
   const [loan] = state.personalLoans.splice(idx, 1);
   state.trash.push({ id: uid(), type: 'personalLoan', data: loan, deletedAt: today() });
-  // حذف دفعاته
   state.loanPayments = state.loanPayments.filter(p => p.loanId !== id);
   save();
   events.emit('loan:deleted', loan);
@@ -636,6 +638,49 @@ export function depositToSavingsGoal(id, amount) {
   save();
   events.emit('savingsGoal:updated', goal);
   return goal;
+}
+
+/* ============================================================
+   قسم معرض الأعمال (Portfolio)
+   ============================================================ */
+
+export function getPortfolio() { return state.portfolio; }
+
+export function getPortfolioItem(id) {
+  if (!id) return null;
+  return state.portfolio.find(p => p.id === id) || null;
+}
+
+export function addPortfolioItem(item) {
+  const newItem = {
+    ...item,
+    id: item.id || uid(),
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  state.portfolio.push(newItem);
+  save();
+  events.emit('portfolio:added', newItem);
+  return newItem;
+}
+
+export function updatePortfolioItem(id, updates) {
+  const item = getPortfolioItem(id);
+  if (!item) return null;
+  Object.assign(item, updates, { updatedAt: Date.now() });
+  save();
+  events.emit('portfolio:updated', item);
+  return item;
+}
+
+export function deletePortfolioItem(id) {
+  const idx = state.portfolio.findIndex(p => p.id === id);
+  if (idx === -1) return false;
+  const [item] = state.portfolio.splice(idx, 1);
+  state.trash.push({ id: uid(), type: 'portfolio', data: item, deletedAt: today() });
+  save();
+  events.emit('portfolio:deleted', item);
+  return true;
 }
 
 /* ============================================================
