@@ -1,5 +1,6 @@
 /* ============================================================
    orders.js - صفحة إدارة الطلبات (V2)
+   (تدعم الإضافة، التعديل، والحذف)
    ============================================================ */
 
 import * as db from '../core/db.js';
@@ -34,7 +35,7 @@ export function renderOrdersPage(container) {
       const remaining = (o.totalPrice || 0) - (o.deposit || 0);
       
       html += `
-        <div style="border: 1px solid var(--border-color); padding: 12px; border-radius: var(--radius-md); background: var(--bg-color);">
+        <div class="order-item" data-id="${o.id}" style="border: 1px solid var(--border-color); padding: 12px; border-radius: var(--radius-md); background: var(--bg-color); cursor: pointer;">
           <div style="font-weight:bold; font-size:16px;">👤 ${custName}</div>
           <div style="font-size:13px; margin-top:4px;">🧵 ${o.garmentType} (الكمية: ${o.quantity})</div>
           <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">
@@ -49,82 +50,115 @@ export function renderOrdersPage(container) {
   html += `</div>`;
   container.innerHTML = html;
 
-  // ربط زر الإضافة
-  const addBtn = container.querySelector('#add-order-btn');
-  if (addBtn) {
-    addBtn.addEventListener('click', () => {
-      if (customers.length === 0) {
-        toast.error('يجب إضافة عميل أولاً قبل إضافة طلب!');
+  // ===== دالة فتح نموذج الإضافة/التعديل =====
+  function openOrderModal(order = null) {
+    if (customers.length === 0) {
+      toast.error('يجب إضافة عميل أولاً قبل إضافة طلب!');
+      return;
+    }
+
+    const isEdit = order !== null;
+    const title = isEdit ? 'تعديل الطلب' : 'إضافة طلب جديد';
+
+    const customerOptions = customers.map(c => {
+      const selected = (isEdit && c.id === order.customerId) ? 'selected' : '';
+      return `<option value="${c.id}" ${selected}>${c.name}</option>`;
+    }).join('');
+
+    const formHtml = `
+      <h3 class="card-title">${title}</h3>
+      <form id="order-form">
+        <div class="form-group">
+          <label>العميل *</label>
+          <select id="order-customer" class="form-control" required>
+            <option value="">اختر العميل...</option>
+            ${customerOptions}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>نوع الجلابية *</label>
+          <input type="text" id="order-garment" class="form-control" value="${isEdit ? order.garmentType : ''}" required>
+        </div>
+        <div class="form-group">
+          <label>الكمية *</label>
+          <input type="number" id="order-qty" class="form-control" value="${isEdit ? order.quantity : 1}" min="1" required>
+        </div>
+        <div class="form-group">
+          <label>السعر الإجمالي *</label>
+          <input type="number" id="order-price" class="form-control" value="${isEdit ? order.totalPrice : ''}" required>
+        </div>
+        <div class="form-group">
+          <label>المقدم (الدفعة الأولى)</label>
+          <input type="number" id="order-deposit" class="form-control" value="${isEdit ? (order.deposit || 0) : 0}">
+        </div>
+        <div class="flex-between mt-2">
+          <div>
+            ${isEdit ? `<button type="button" class="btn btn-danger" id="delete-order-btn">حذف</button>` : ''}
+          </div>
+          <div>
+            <button type="button" class="btn btn-outline" id="cancel-order-btn">إلغاء</button>
+            <button type="submit" class="btn btn-primary">${isEdit ? 'تحديث' : 'حفظ'}</button>
+          </div>
+        </div>
+      </form>
+    `;
+    
+    openModal(formHtml);
+
+    const form = document.getElementById('order-form');
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      
+      const customerId = document.getElementById('order-customer').value;
+      const garmentType = document.getElementById('order-garment').value.trim();
+      const quantity = parseInt(document.getElementById('order-qty').value);
+      const totalPrice = parseFloat(document.getElementById('order-price').value);
+      const deposit = parseFloat(document.getElementById('order-deposit').value) || 0;
+
+      if (!customerId || !garmentType || !quantity || !totalPrice) {
+        toast.error('الرجاء ملء جميع الحقول المطلوبة');
         return;
       }
 
-      const customerOptions = customers.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+      const orderData = { customerId, garmentType, quantity, totalPrice, deposit, date: today() };
 
-      const formHtml = `
-        <h3 class="card-title">إضافة طلب جديد</h3>
-        <form id="order-form">
-          <div class="form-group">
-            <label>العميل *</label>
-            <select id="order-customer" class="form-control" required>
-              <option value="">اختر العميل...</option>
-              ${customerOptions}
-            </select>
-          </div>
-          <div class="form-group">
-            <label>نوع الجلابية *</label>
-            <input type="text" id="order-garment" class="form-control" placeholder="مثال: جلابية سادة" required>
-          </div>
-          <div class="form-group">
-            <label>الكمية *</label>
-            <input type="number" id="order-qty" class="form-control" value="1" min="1" required>
-          </div>
-          <div class="form-group">
-            <label>السعر الإجمالي *</label>
-            <input type="number" id="order-price" class="form-control" placeholder="0" required>
-          </div>
-          <div class="form-group">
-            <label>المقدم (الدفعة الأولى)</label>
-            <input type="number" id="order-deposit" class="form-control" value="0">
-          </div>
-          <div class="flex-between mt-2">
-            <button type="button" class="btn btn-outline" id="cancel-order-btn">إلغاء</button>
-            <button type="submit" class="btn btn-primary">حفظ الطلب</button>
-          </div>
-        </form>
-      `;
-      
-      openModal(formHtml);
-
-      const form = document.getElementById('order-form');
-      form.addEventListener('submit', (e) => {
-        e.preventDefault();
-        
-        const customerId = document.getElementById('order-customer').value;
-        const garmentType = document.getElementById('order-garment').value.trim();
-        const quantity = parseInt(document.getElementById('order-qty').value);
-        const totalPrice = parseFloat(document.getElementById('order-price').value);
-        const deposit = parseFloat(document.getElementById('order-deposit').value) || 0;
-
-        if (!customerId || !garmentType || !quantity || !totalPrice) {
-          toast.error('الرجاء ملء جميع الحقول المطلوبة');
-          return;
-        }
-
-        db.addOrder({
-          customerId,
-          garmentType,
-          quantity,
-          totalPrice,
-          deposit,
-          date: today()
-        });
-
-        closeModal();
+      if (isEdit) {
+        db.updateOrder(order.id, orderData);
+        toast.success('تم تحديث الطلب');
+      } else {
+        db.addOrder(orderData);
         toast.success('تم إضافة الطلب بنجاح');
-        renderOrdersPage(container);
-      });
+      }
 
-      document.getElementById('cancel-order-btn').addEventListener('click', closeModal);
+      closeModal();
+      renderOrdersPage(container);
     });
+
+    document.getElementById('cancel-order-btn').addEventListener('click', closeModal);
+
+    if (isEdit) {
+      document.getElementById('delete-order-btn').addEventListener('click', () => {
+        if (confirm('هل أنت متأكد من حذف هذا الطلب؟')) {
+          db.deleteOrder(order.id);
+          toast.success('تم حذف الطلب');
+          closeModal();
+          renderOrdersPage(container);
+        }
+      });
+    }
   }
+
+  // ===== ربط الأحداث =====
+  const addBtn = container.querySelector('#add-order-btn');
+  if (addBtn) {
+    addBtn.addEventListener('click', () => openOrderModal(null));
+  }
+
+  container.querySelectorAll('.order-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const id = item.dataset.id;
+      const order = db.getOrder(id);
+      if (order) openOrderModal(order);
+    });
+  });
 }
