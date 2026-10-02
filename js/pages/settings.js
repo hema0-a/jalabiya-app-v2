@@ -1,15 +1,46 @@
 /* ============================================================
    settings.js - صفحة الإعدادات والنسخ الاحتياطي (V2)
+   (تدعم تغيير الألوان + النسخ الاحتياطي)
    ============================================================ */
 
 import * as db from '../core/db.js';
 import { toast } from '../ui/toast.js';
+import { saveTheme } from '../core/theme.js';
+import { APP_CONFIG, DEFAULT_SETTINGS } from '../core/config.js';
+import * as storage from '../core/storage.js';
 
 export function renderSettingsPage(container) {
+  // جلب الإعدادات الحالية أو الافتراضية
+  const settings = storage.loadSettings() || { ...DEFAULT_SETTINGS };
+  const currentTheme = settings.theme || DEFAULT_SETTINGS.theme;
+
   container.innerHTML = `
     <div class="card">
       <h2 class="card-title">⚙️ الإعدادات</h2>
       
+      <!-- قسم تخصيص الألوان -->
+      <div class="card" style="background: var(--bg-color); border: none; margin-bottom: 16px;">
+        <h3 style="font-size: 16px; margin-bottom: 12px;">🎨 تخصيص الألوان</h3>
+        
+        <div class="form-group">
+          <label>اللون الأساسي</label>
+          <input type="color" id="color-primary" class="form-control" value="${currentTheme.primary || '#1F6D57'}" style="height: 50px; padding: 4px;">
+        </div>
+        
+        <div class="form-group">
+          <label>اللون الثانوي (الذهبي)</label>
+          <input type="color" id="color-accent" class="form-control" value="${currentTheme.accent || '#B8863B'}" style="height: 50px; padding: 4px;">
+        </div>
+        
+        <div class="form-group">
+          <label>لون الخلفية</label>
+          <input type="color" id="color-bg" class="form-control" value="${currentTheme.bg || '#F6F1E6'}" style="height: 50px; padding: 4px;">
+        </div>
+        
+        <button class="btn btn-primary btn-full" id="save-theme-btn">حفظ الألوان</button>
+        <button class="btn btn-outline btn-full mt-2" id="reset-theme-btn">استعادة الألوان الافتراضية</button>
+      </div>
+
       <!-- قسم النسخ الاحتياطي -->
       <div class="card" style="background: var(--bg-color); border: none; margin-bottom: 16px;">
         <h3 style="font-size: 16px; margin-bottom: 12px;">💾 النسخ الاحتياطي والاستيراد</h3>
@@ -38,7 +69,29 @@ export function renderSettingsPage(container) {
     </div>
   `;
 
-  // 1. تصدير البيانات
+  // ===== أحداث الألوان =====
+  const saveThemeBtn = container.querySelector('#save-theme-btn');
+  saveThemeBtn.addEventListener('click', () => {
+    const theme = {
+      primary: document.getElementById('color-primary').value,
+      accent: document.getElementById('color-accent').value,
+      bg: document.getElementById('color-bg').value
+    };
+    saveTheme(theme);
+    toast.success('تم حفظ الألوان بنجاح');
+  });
+
+  const resetThemeBtn = container.querySelector('#reset-theme-btn');
+  resetThemeBtn.addEventListener('click', () => {
+    if (confirm('هل تريد استعادة الألوان الافتراضية؟')) {
+      saveTheme(DEFAULT_SETTINGS.theme);
+      // إعادة تحميل الصفحة لتحديث قيم حقول الألوان
+      renderSettingsPage(container);
+      toast.success('تم استعادة الألوان الافتراضية');
+    }
+  });
+
+  // ===== أحداث النسخ الاحتياطي =====
   const exportBtn = container.querySelector('#export-btn');
   exportBtn.addEventListener('click', () => {
     const data = db.getStateCopy();
@@ -57,7 +110,6 @@ export function renderSettingsPage(container) {
     toast.success('تم تصدير البيانات بنجاح');
   });
 
-  // 2. استيراد البيانات
   const importInput = container.querySelector('#import-file');
   importInput.addEventListener('change', (e) => {
     const file = e.target.files[0];
@@ -87,7 +139,7 @@ export function renderSettingsPage(container) {
     importInput.value = '';
   });
 
-  // 3. حذف جميع البيانات
+  // ===== حدث حذف البيانات =====
   const resetBtn = container.querySelector('#reset-btn');
   resetBtn.addEventListener('click', () => {
     if (confirm('هل أنت متأكد تماماً؟ سيتم حذف جميع البيانات نهائياً!')) {
