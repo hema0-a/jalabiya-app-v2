@@ -1,5 +1,5 @@
 /* ============================================================
-   db.js - طبقة البيانات الشاملة (V2)
+   db.js - طبقة البيانات الشاملة النهائية (V2)
    ============================================================ */
 
 import { APP_CONFIG, DEFAULT_DB } from './config.js';
@@ -25,7 +25,10 @@ export function load() {
         payments: state.payments.length,
         expenses: state.expenses.length,
         inventory: state.inventory.length,
-        workers: state.workers.length
+        workers: state.workers.length,
+        commitments: state.commitments.length,
+        houseExpenses: state.houseExpenses.length,
+        personalLoans: state.personalLoans.length
       });
     } else {
       state = deepClone(DEFAULT_DB);
@@ -44,9 +47,9 @@ export function load() {
 function mergeWithDefaults(saved) {
   const merged = { ...deepClone(DEFAULT_DB), ...saved };
   ['customers', 'orders', 'payments', 'expenses', 'commitments',
-   'houseExpenses', 'personalLoans', 'inventory', 'workers',
-   'workerPayments', 'garmentTypes', 'holidays', 'occasions',
-   'activityLog', 'trash'].forEach(key => {
+   'commitmentPayments', 'houseExpenses', 'personalLoans', 'loanPayments',
+   'savingsGoals', 'inventory', 'workers', 'workerPayments',
+   'garmentTypes', 'holidays', 'occasions', 'activityLog', 'trash'].forEach(key => {
     if (!Array.isArray(merged[key])) merged[key] = [];
   });
   return merged;
@@ -269,11 +272,6 @@ export function deleteInventoryItem(id) {
   return true;
 }
 
-/**
- * تعديل كمية مخزون (إضافة أو خصم)
- * @param {string} id - معرّف العنصر
- * @param {number} delta - الفرق (+ للإضافة، - للخصم)
- */
 export function adjustInventoryQuantity(id, delta) {
   const item = getInventoryItem(id);
   if (!item) return null;
@@ -285,9 +283,6 @@ export function adjustInventoryQuantity(id, delta) {
   return item;
 }
 
-/**
- * الحصول على العناصر التي وصلت للحد الأدنى
- */
 export function getLowStockItems() {
   return state.inventory.filter(i => (i.quantity || 0) <= (i.minQuantity || 0) && (i.minQuantity || 0) > 0);
 }
@@ -373,6 +368,274 @@ export function deleteWorkerPayment(id) {
   save();
   events.emit('workerPayment:deleted', payment);
   return true;
+}
+
+/* ============================================================
+   قسم الالتزامات الشخصية (Commitments)
+   ============================================================ */
+
+export function getCommitments() { return state.commitments; }
+
+export function getCommitment(id) {
+  if (!id) return null;
+  return state.commitments.find(c => c.id === id) || null;
+}
+
+export function addCommitment(commitment) {
+  const newCommitment = {
+    ...commitment,
+    id: commitment.id || uid(),
+    amount: Number(commitment.amount) || 0,
+    active: commitment.active !== false,
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  state.commitments.push(newCommitment);
+  save();
+  events.emit('commitment:added', newCommitment);
+  return newCommitment;
+}
+
+export function updateCommitment(id, updates) {
+  const commitment = getCommitment(id);
+  if (!commitment) return null;
+  Object.assign(commitment, updates, { updatedAt: Date.now() });
+  save();
+  events.emit('commitment:updated', commitment);
+  return commitment;
+}
+
+export function deleteCommitment(id) {
+  const idx = state.commitments.findIndex(c => c.id === id);
+  if (idx === -1) return false;
+  const [commitment] = state.commitments.splice(idx, 1);
+  state.trash.push({ id: uid(), type: 'commitment', data: commitment, deletedAt: today() });
+  // حذف دفعاته
+  state.commitmentPayments = state.commitmentPayments.filter(p => p.commitmentId !== id);
+  save();
+  events.emit('commitment:deleted', commitment);
+  return true;
+}
+
+/* ============================================================
+   قسم دفعات الالتزامات (Commitment Payments)
+   ============================================================ */
+
+export function getCommitmentPayments() { return state.commitmentPayments; }
+
+export function getCommitmentPayment(id) {
+  if (!id) return null;
+  return state.commitmentPayments.find(p => p.id === id) || null;
+}
+
+export function getCommitmentPaymentsByCommitment(commitmentId) {
+  return state.commitmentPayments.filter(p => p.commitmentId === commitmentId);
+}
+
+export function addCommitmentPayment(payment) {
+  const newPayment = {
+    ...payment,
+    id: payment.id || uid(),
+    amount: Number(payment.amount) || 0,
+    createdAt: Date.now()
+  };
+  state.commitmentPayments.push(newPayment);
+  save();
+  events.emit('commitmentPayment:added', newPayment);
+  return newPayment;
+}
+
+export function deleteCommitmentPayment(id) {
+  const idx = state.commitmentPayments.findIndex(p => p.id === id);
+  if (idx === -1) return false;
+  const [payment] = state.commitmentPayments.splice(idx, 1);
+  state.trash.push({ id: uid(), type: 'commitmentPayment', data: payment, deletedAt: today() });
+  save();
+  events.emit('commitmentPayment:deleted', payment);
+  return true;
+}
+
+/* ============================================================
+   قسم مصاريف البيت (House Expenses)
+   ============================================================ */
+
+export function getHouseExpenses() { return state.houseExpenses; }
+
+export function getHouseExpense(id) {
+  if (!id) return null;
+  return state.houseExpenses.find(e => e.id === id) || null;
+}
+
+export function addHouseExpense(expense) {
+  const newExpense = {
+    ...expense,
+    id: expense.id || uid(),
+    amount: Number(expense.amount) || 0,
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  state.houseExpenses.push(newExpense);
+  save();
+  events.emit('houseExpense:added', newExpense);
+  return newExpense;
+}
+
+export function updateHouseExpense(id, updates) {
+  const expense = getHouseExpense(id);
+  if (!expense) return null;
+  Object.assign(expense, updates, { updatedAt: Date.now() });
+  save();
+  events.emit('houseExpense:updated', expense);
+  return expense;
+}
+
+export function deleteHouseExpense(id) {
+  const idx = state.houseExpenses.findIndex(e => e.id === id);
+  if (idx === -1) return false;
+  const [expense] = state.houseExpenses.splice(idx, 1);
+  state.trash.push({ id: uid(), type: 'houseExpense', data: expense, deletedAt: today() });
+  save();
+  events.emit('houseExpense:deleted', expense);
+  return true;
+}
+
+/* ============================================================
+   قسم القروض الشخصية (Personal Loans)
+   ============================================================ */
+
+export function getPersonalLoans() { return state.personalLoans; }
+
+export function getPersonalLoan(id) {
+  if (!id) return null;
+  return state.personalLoans.find(l => l.id === id) || null;
+}
+
+export function addPersonalLoan(loan) {
+  const newLoan = {
+    ...loan,
+    id: loan.id || uid(),
+    amount: Number(loan.amount) || 0,
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  state.personalLoans.push(newLoan);
+  save();
+  events.emit('loan:added', newLoan);
+  return newLoan;
+}
+
+export function updatePersonalLoan(id, updates) {
+  const loan = getPersonalLoan(id);
+  if (!loan) return null;
+  Object.assign(loan, updates, { updatedAt: Date.now() });
+  save();
+  events.emit('loan:updated', loan);
+  return loan;
+}
+
+export function deletePersonalLoan(id) {
+  const idx = state.personalLoans.findIndex(l => l.id === id);
+  if (idx === -1) return false;
+  const [loan] = state.personalLoans.splice(idx, 1);
+  state.trash.push({ id: uid(), type: 'personalLoan', data: loan, deletedAt: today() });
+  // حذف دفعاته
+  state.loanPayments = state.loanPayments.filter(p => p.loanId !== id);
+  save();
+  events.emit('loan:deleted', loan);
+  return true;
+}
+
+/* ============================================================
+   قسم دفعات القروض (Loan Payments)
+   ============================================================ */
+
+export function getLoanPayments() { return state.loanPayments; }
+
+export function getLoanPayment(id) {
+  if (!id) return null;
+  return state.loanPayments.find(p => p.id === id) || null;
+}
+
+export function getLoanPaymentsByLoan(loanId) {
+  return state.loanPayments.filter(p => p.loanId === loanId);
+}
+
+export function addLoanPayment(payment) {
+  const newPayment = {
+    ...payment,
+    id: payment.id || uid(),
+    amount: Number(payment.amount) || 0,
+    createdAt: Date.now()
+  };
+  state.loanPayments.push(newPayment);
+  save();
+  events.emit('loanPayment:added', newPayment);
+  return newPayment;
+}
+
+export function deleteLoanPayment(id) {
+  const idx = state.loanPayments.findIndex(p => p.id === id);
+  if (idx === -1) return false;
+  const [payment] = state.loanPayments.splice(idx, 1);
+  state.trash.push({ id: uid(), type: 'loanPayment', data: payment, deletedAt: today() });
+  save();
+  events.emit('loanPayment:deleted', payment);
+  return true;
+}
+
+/* ============================================================
+   قسم أهداف الادخار (Savings Goals)
+   ============================================================ */
+
+export function getSavingsGoals() { return state.savingsGoals; }
+
+export function getSavingsGoal(id) {
+  if (!id) return null;
+  return state.savingsGoals.find(g => g.id === id) || null;
+}
+
+export function addSavingsGoal(goal) {
+  const newGoal = {
+    ...goal,
+    id: goal.id || uid(),
+    targetAmount: Number(goal.targetAmount) || 0,
+    currentAmount: Number(goal.currentAmount) || 0,
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  state.savingsGoals.push(newGoal);
+  save();
+  events.emit('savingsGoal:added', newGoal);
+  return newGoal;
+}
+
+export function updateSavingsGoal(id, updates) {
+  const goal = getSavingsGoal(id);
+  if (!goal) return null;
+  Object.assign(goal, updates, { updatedAt: Date.now() });
+  save();
+  events.emit('savingsGoal:updated', goal);
+  return goal;
+}
+
+export function deleteSavingsGoal(id) {
+  const idx = state.savingsGoals.findIndex(g => g.id === id);
+  if (idx === -1) return false;
+  const [goal] = state.savingsGoals.splice(idx, 1);
+  state.trash.push({ id: uid(), type: 'savingsGoal', data: goal, deletedAt: today() });
+  save();
+  events.emit('savingsGoal:deleted', goal);
+  return true;
+}
+
+export function depositToSavingsGoal(id, amount) {
+  const goal = getSavingsGoal(id);
+  if (!goal) return null;
+  goal.currentAmount = (goal.currentAmount || 0) + Number(amount);
+  goal.updatedAt = Date.now();
+  save();
+  events.emit('savingsGoal:updated', goal);
+  return goal;
 }
 
 /* ============================================================
