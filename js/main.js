@@ -1,5 +1,5 @@
 /* ============================================================
-   main.js - نقطة الدخول الرئيسية النهائية (V2)
+   main.js - نقطة الدخول الرئيسية النهائية الشاملة (V2)
    ============================================================ */
 
 import { APP_CONFIG } from './core/config.js';
@@ -25,6 +25,7 @@ import { renderPaymentsPage } from './pages/payments.js';
 import { renderInventoryPage } from './pages/inventory.js';
 import { renderWorkersPage } from './pages/workers.js';
 import { renderExpensesPage } from './pages/expenses.js';
+import { renderPricingCalculatorPage } from './pages/pricing-calculator.js';
 
 // استيراد الصفحات - المالية الشخصية
 import { renderCommitmentsPage } from './pages/commitments.js';
@@ -50,7 +51,7 @@ async function init() {
     console.log('📦 تحميل البيانات...');
     db.load();
 
-    // تفعيل سجل النشاط (يستمع للأحداث ويسجلها تلقائياً)
+    // تفعيل سجل النشاط
     console.log('📜 تفعيل سجل النشاط التلقائي...');
     initActivityLogger();
 
@@ -61,7 +62,7 @@ async function init() {
       console.log(`   تم حذف ${removedCount} عنصر قديم`);
     }
 
-    console.log('🎨 تحميل الألوان...');
+    console.log('🎨 تحميل الألوان وأوضاع العرض...');
     loadTheme();
 
     console.log('🎨 تهيئة الواجهة...');
@@ -108,6 +109,7 @@ function startApp() {
   router.register('/inventory', renderInventoryPage);
   router.register('/workers', renderWorkersPage);
   router.register('/expenses', renderExpensesPage);
+  router.register('/pricing-calculator', renderPricingCalculatorPage);
   
   // المالية الشخصية
   router.register('/commitments', renderCommitmentsPage);
