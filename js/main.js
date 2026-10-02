@@ -1,5 +1,5 @@
 /* ============================================================
-   main.js - نقطة الدخول الرئيسية الشاملة (V2)
+   main.js - نقطة الدخول الرئيسية النهائية (V2)
    ============================================================ */
 
 import { APP_CONFIG } from './core/config.js';
@@ -12,18 +12,31 @@ import { renderTopbar } from './ui/topbar.js';
 import { router } from './ui/router.js';
 import { loadTheme } from './core/theme.js';
 import { initAuth, startIdleTimer } from './core/auth.js';
+import { initActivityLogger } from './core/activity-log.js';
+import { cleanOldTrashItems } from './core/trash.js';
 
-// استيراد الصفحات
+// استيراد الصفحات - العمليات
 import { renderDashboardPage } from './pages/dashboard.js';
 import { renderCustomersPage } from './pages/customers.js';
 import { renderOrdersPage } from './pages/orders.js';
 import { renderPaymentsPage } from './pages/payments.js';
-import { renderExpensesPage } from './pages/expenses.js';
+
+// استيراد الصفحات - إدارة الورشة
 import { renderInventoryPage } from './pages/inventory.js';
 import { renderWorkersPage } from './pages/workers.js';
+import { renderExpensesPage } from './pages/expenses.js';
+
+// استيراد الصفحات - المالية الشخصية
 import { renderCommitmentsPage } from './pages/commitments.js';
 import { renderHouseExpensesPage } from './pages/house-expenses.js';
 import { renderLoansPage } from './pages/loans.js';
+
+// استيراد الصفحات - الميزات المتقدمة
+import { renderReferralsPage } from './pages/referrals.js';
+import { renderActivityLogPage } from './pages/activity-log.js';
+import { renderTrashPage } from './pages/trash.js';
+
+// استيراد الصفحات - التقارير والإعدادات
 import { renderReportsPage } from './pages/reports.js';
 import { renderSettingsPage } from './pages/settings.js';
 
@@ -36,6 +49,17 @@ async function init() {
   try {
     console.log('📦 تحميل البيانات...');
     db.load();
+
+    // تفعيل سجل النشاط (يستمع للأحداث ويسجلها تلقائياً)
+    console.log('📜 تفعيل سجل النشاط التلقائي...');
+    initActivityLogger();
+
+    // تنظيف السلة من العناصر القديمة
+    console.log('🧹 تنظيف سلة المحذوفات...');
+    const removedCount = cleanOldTrashItems();
+    if (removedCount > 0) {
+      console.log(`   تم حذف ${removedCount} عنصر قديم`);
+    }
 
     console.log('🎨 تحميل الألوان...');
     loadTheme();
@@ -70,17 +94,32 @@ async function init() {
 function startApp() {
   renderAppLayout();
 
+  // ============================================================
   // تسجيل جميع الصفحات في الراوتر
+  // ============================================================
+  
+  // العمليات
   router.register('/dashboard', renderDashboardPage);
   router.register('/customers', renderCustomersPage);
   router.register('/orders', renderOrdersPage);
   router.register('/payments', renderPaymentsPage);
-  router.register('/expenses', renderExpensesPage);
+  
+  // إدارة الورشة
   router.register('/inventory', renderInventoryPage);
   router.register('/workers', renderWorkersPage);
+  router.register('/expenses', renderExpensesPage);
+  
+  // المالية الشخصية
   router.register('/commitments', renderCommitmentsPage);
   router.register('/house-expenses', renderHouseExpensesPage);
   router.register('/loans', renderLoansPage);
+  
+  // الميزات المتقدمة
+  router.register('/referrals', renderReferralsPage);
+  router.register('/activity-log', renderActivityLogPage);
+  router.register('/trash', renderTrashPage);
+  
+  // التقارير والإعدادات
   router.register('/reports', renderReportsPage);
   router.register('/settings', renderSettingsPage);
 
