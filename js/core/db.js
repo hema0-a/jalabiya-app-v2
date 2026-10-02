@@ -1,8 +1,5 @@
 /* ============================================================
-   db.js - طبقة البيانات (Data Layer) - V2
-   
-   كل التعامل مع البيانات يمر من هنا.
-   لا يوجد كود UI في هذا الملف.
+   db.js - طبقة البيانات الشاملة (V2)
    ============================================================ */
 
 import { APP_CONFIG, DEFAULT_DB } from './config.js';
@@ -10,21 +7,19 @@ import * as storage from './storage.js';
 import { events, EVENTS } from './events.js';
 import { deepClone, uid, today } from './utils.js';
 
-// الحالة الداخلية
 let state = deepClone(DEFAULT_DB);
 let saveTimer = null;
 
-// ═══ التحميل ═══
+/* ============================================================
+   تحميل وحفظ قاعدة البيانات
+   ============================================================ */
 
 export function load() {
   try {
     const saved = storage.loadDB();
     if (saved && typeof saved === 'object') {
       state = mergeWithDefaults(saved);
-      console.log('✅ DB loaded:', {
-        customers: state.customers.length,
-        orders: state.orders.length,
-      });
+      console.log('✅ DB loaded:', { customers: state.customers.length, orders: state.orders.length, payments: state.payments.length });
     } else {
       state = deepClone(DEFAULT_DB);
       console.log('📭 DB empty — using defaults');
@@ -49,12 +44,8 @@ function mergeWithDefaults(saved) {
   return merged;
 }
 
-// ═══ الحفظ ═══
-
 export function save(immediate = false) {
-  if (immediate) {
-    return persist();
-  }
+  if (immediate) return persist();
   clearTimeout(saveTimer);
   saveTimer = setTimeout(persist, APP_CONFIG.saveDebounceMs);
 }
@@ -63,47 +54,30 @@ function persist() {
   clearTimeout(saveTimer);
   state.updatedAt = Date.now();
   const ok = storage.saveDB(state);
-  if (ok) {
-    events.emit(EVENTS.DB_SAVED, { updatedAt: state.updatedAt });
-  }
+  if (ok) events.emit(EVENTS.DB_SAVED, { updatedAt: state.updatedAt });
   return ok;
 }
 
-export function flush() {
-  return persist();
-}
-
-export function backup() {
-  return storage.saveBackup(state);
-}
-
-// ═══ الوصول للبيانات ═══
-
-export function getState() {
-  return state;
-}
-
-export function getStateCopy() {
-  return deepClone(state);
-}
-
+export function flush() { return persist(); }
+export function backup() { return storage.saveBackup(state); }
+export function getState() { return state; }
+export function getStateCopy() { return deepClone(state); }
 export function setState(newState) {
   state = { ...deepClone(DEFAULT_DB), ...newState };
   save(true);
   events.emit(EVENTS.DB_LOADED, state);
 }
-
 export function reset() {
   state = deepClone(DEFAULT_DB);
   save(true);
   events.emit(EVENTS.DB_LOADED, state);
 }
 
-// ═══ العملاء ═══
+/* ============================================================
+   قسم العملاء (Customers)
+   ============================================================ */
 
-export function getCustomers() {
-  return state.customers;
-}
+export function getCustomers() { return state.customers; }
 
 export function getCustomer(id) {
   if (!id) return null;
@@ -111,12 +85,7 @@ export function getCustomer(id) {
 }
 
 export function addCustomer(customer) {
-  const newCustomer = { 
-    ...customer, 
-    id: customer.id || uid(), 
-    createdAt: Date.now(), 
-    updatedAt: Date.now() 
-  };
+  const newCustomer = { ...customer, id: customer.id || uid(), createdAt: Date.now(), updatedAt: Date.now() };
   state.customers.push(newCustomer);
   save();
   events.emit(EVENTS.CUSTOMER_ADDED, newCustomer);
@@ -136,22 +105,17 @@ export function deleteCustomer(id) {
   const idx = state.customers.findIndex(c => c.id === id);
   if (idx === -1) return false;
   const [customer] = state.customers.splice(idx, 1);
-  state.trash.push({
-    id: uid(),
-    type: 'customer',
-    data: customer,
-    deletedAt: today(),
-  });
+  state.trash.push({ id: uid(), type: 'customer', data: customer, deletedAt: today() });
   save();
   events.emit(EVENTS.CUSTOMER_DELETED, customer);
   return true;
 }
 
-// ═══ الطلبات ═══
+/* ============================================================
+   قسم الطلبات (Orders)
+   ============================================================ */
 
-export function getOrders() {
-  return state.orders;
-}
+export function getOrders() { return state.orders; }
 
 export function getOrder(id) {
   if (!id) return null;
@@ -159,12 +123,7 @@ export function getOrder(id) {
 }
 
 export function addOrder(order) {
-  const newOrder = { 
-    ...order, 
-    id: order.id || uid(), 
-    createdAt: Date.now(), 
-    updatedAt: Date.now() 
-  };
+  const newOrder = { ...order, id: order.id || uid(), createdAt: Date.now(), updatedAt: Date.now() };
   state.orders.push(newOrder);
   save();
   events.emit(EVENTS.ORDER_ADDED, newOrder);
@@ -184,18 +143,49 @@ export function deleteOrder(id) {
   const idx = state.orders.findIndex(o => o.id === id);
   if (idx === -1) return false;
   const [order] = state.orders.splice(idx, 1);
-  state.trash.push({
-    id: uid(),
-    type: 'order',
-    data: order,
-    deletedAt: today(),
-  });
+  state.trash.push({ id: uid(), type: 'order', data: order, deletedAt: today() });
   save();
   events.emit(EVENTS.ORDER_DELETED, order);
   return true;
 }
 
-// ═══ الإغلاق الآمن ═══
+/* ============================================================
+   قسم الدفعات (Payments)
+   ============================================================ */
+
+export function getPayments() { 
+  return state.payments; 
+}
+
+export function getPayment(id) {
+  if (!id) return null;
+  return state.payments.find(p => p.id === id) || null;
+}
+
+export function addPayment(payment) {
+  const newPayment = { 
+    ...payment, 
+    id: payment.id || uid(), 
+    createdAt: Date.now() 
+  };
+  state.payments.push(newPayment);
+  save();
+  events.emit(EVENTS.PAYMENT_ADDED, newPayment);
+  return newPayment;
+}
+
+export function deletePayment(id) {
+  const idx = state.payments.findIndex(p => p.id === id);
+  if (idx === -1) return false;
+  const [payment] = state.payments.splice(idx, 1);
+  state.trash.push({ id: uid(), type: 'payment', data: payment, deletedAt: today() });
+  save();
+  return true;
+}
+
+/* ============================================================
+   أحداث الحفظ التلقائي
+   ============================================================ */
 
 window.addEventListener('beforeunload', () => flush());
 window.addEventListener('pagehide', () => flush());
