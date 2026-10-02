@@ -9,6 +9,7 @@ import { saveTheme, setDisplayMode, applyDisplayModes } from '../core/theme.js';
 import { changePin } from '../core/auth.js';
 import { APP_CONFIG, DEFAULT_SETTINGS } from '../core/config.js';
 import * as storage from '../core/storage.js';
+import { renderMeasurementFieldsSection, initMeasurementFieldsSection, renderGarmentTypesSection, initGarmentTypesSection } from '../ui/customization-manager.js';
 
 export function renderSettingsPage(container) {
   const settings = storage.loadSettings() || { ...DEFAULT_SETTINGS };
@@ -71,6 +72,15 @@ export function renderSettingsPage(container) {
   
   <button class="btn btn-primary btn-full" id="save-daily-limit-btn">حفظ الحد اليومي</button>
 </div>
+<!-- ============================================================
+     حقول المقاسات (جديد)
+     ============================================================ -->
+${renderMeasurementFieldsSection()}
+
+<!-- ============================================================
+     أنواع الجلابيات (جديد)
+     ============================================================ -->
+${renderGarmentTypesSection()}
 
       <!-- ============================================================
            تخصيص الألوان
@@ -410,6 +420,12 @@ if (saveDailyLimitBtn) {
     reader.readAsText(file);
     e.target.value = '';
   });
+   // ============================================================
+// حقول المقاسات + أنواع الجلابيات
+// ============================================================
+initMeasurementFieldsSection(container, () => renderSettingsPage(container));
+initGarmentTypesSection(container, () => renderSettingsPage(container));
+
 
   // ============================================================
   // حذف البيانات
