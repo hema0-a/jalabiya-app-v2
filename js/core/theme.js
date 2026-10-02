@@ -1,21 +1,19 @@
 /* ============================================================
-   theme.js - إدارة ألوان التطبيق (V2)
+   theme.js - إدارة الألوان وأوضاع العرض (V2)
    ============================================================ */
 
-import { APP_CONFIG, DEFAULT_SETTINGS } from './config.js';
+import { DEFAULT_SETTINGS } from './config.js';
 import * as storage from './storage.js';
 
-/**
- * تطبيق الألوان على الصفحة
- * @param {Object} theme - كائن يحتوي على الألوان (primary, accent, bg)
- */
+/* ============================================================
+   تطبيق الألوان على الصفحة
+   ============================================================ */
 export function applyTheme(theme) {
   if (!theme) return;
   const root = document.documentElement;
   
   if (theme.primary) {
     root.style.setProperty('--primary-color', theme.primary);
-    // اشتقاق لون داكن تلقائياً (يمكن تحسينه لاحقاً)
     root.style.setProperty('--primary-dark', adjustColor(theme.primary, -30));
   }
   if (theme.accent) {
@@ -26,58 +24,117 @@ export function applyTheme(theme) {
   }
 }
 
-/**
- * تحميل الألوان المحفوظة من التخزين وتطبيقها
- */
+/* ============================================================
+   تحميل الألوان + أوضاع العرض المحفوظة
+   ============================================================ */
 export function loadTheme() {
-  const settings = storage.loadSettings();
-  if (settings && settings.theme) {
+  const settings = storage.loadSettings() || { ...DEFAULT_SETTINGS };
+  
+  // تطبيق الألوان
+  if (settings.theme) {
     applyTheme(settings.theme);
   } else {
-    // استخدام الألوان الافتراضية من config.js
     applyTheme(DEFAULT_SETTINGS.theme);
   }
+  
+  // تطبيق أوضاع العرض
+  applyDisplayModes(settings);
 }
 
-/**
- * حفظ الألوان الجديدة في التخزين وتطبيقها
- * @param {Object} theme - كائن الألوان الجديد
- */
+/* ============================================================
+   حفظ الألوان الجديدة
+   ============================================================ */
 export function saveTheme(theme) {
-  // جلب الإعدادات الحالية أو الافتراضية
   let settings = storage.loadSettings() || { ...DEFAULT_SETTINGS };
-  
-  // تحديث قسم الثيم
   settings.theme = { ...settings.theme, ...theme };
-  
-  // حفظ الإعدادات
   storage.saveSettings(settings);
-  
-  // تطبيق الألوان فوراً
   applyTheme(settings.theme);
 }
 
-/**
- * دالة مساعدة لتغميق أو تفتيح لون معين (بصيغة HEX)
- * @param {string} hex - اللون بصيغة #RRGGBB
- * @param {number} percent - النسبة (سالب للتغميق، موجب للتفتيح)
- * @returns {string} اللون الجديد
- */
-function adjustColor(hex, percent) {
-  // إزالة علامة # إذا وجدت
-  hex = hex.replace('#', '');
+/* ============================================================
+   تطبيق أوضاع العرض
+   ============================================================ */
+export function applyDisplayModes(settings) {
+  if (!settings) settings = storage.loadSettings() || { ...DEFAULT_SETTINGS };
+  const body = document.body;
   
+  // الوضع الليلي
+  if (settings.darkMode) {
+    body.classList.add('dark-mode');
+  } else {
+    body.classList.remove('dark-mode');
+  }
+  
+  // التباين العالي
+  if (settings.highContrast) {
+    body.classList.add('high-contrast');
+  } else {
+    body.classList.remove('high-contrast');
+  }
+  
+  // الوضع المضغوط
+  if (settings.compactMode) {
+    body.classList.add('compact-mode');
+  } else {
+    body.classList.remove('compact-mode');
+  }
+  
+  // وضع العميل
+  if (settings.clientMode) {
+    body.classList.add('client-mode');
+  } else {
+    body.classList.remove('client-mode');
+  }
+}
+
+/* ============================================================
+   تبديل الوضع الليلي
+   ============================================================ */
+export function toggleDarkMode() {
+  let settings = storage.loadSettings() || { ...DEFAULT_SETTINGS };
+  settings.darkMode = !settings.darkMode;
+  storage.saveSettings(settings);
+  
+  if (settings.darkMode) {
+    document.body.classList.add('dark-mode');
+  } else {
+    document.body.classList.remove('dark-mode');
+  }
+  
+  return settings.darkMode;
+}
+
+/* ============================================================
+   تحديث وضع عرض معين
+   ============================================================ */
+export function setDisplayMode(key, value) {
+  let settings = storage.loadSettings() || { ...DEFAULT_SETTINGS };
+  settings[key] = value;
+  storage.saveSettings(settings);
+  applyDisplayModes(settings);
+  return settings;
+}
+
+/* ============================================================
+   دالة مساعدة: تعديل درجة اللون
+   ============================================================ */
+function adjustColor(hex, percent) {
+  hex = hex.replace('#', '');
   let r = parseInt(hex.substring(0, 2), 16);
   let g = parseInt(hex.substring(2, 4), 16);
   let b = parseInt(hex.substring(4, 6), 16);
-  
   r = Math.max(0, Math.min(255, r + percent));
   g = Math.max(0, Math.min(255, g + percent));
   b = Math.max(0, Math.min(255, b + percent));
-  
   const rr = r.toString(16).padStart(2, '0');
   const gg = g.toString(16).padStart(2, '0');
   const bb = b.toString(16).padStart(2, '0');
-  
   return `#${rr}${gg}${bb}`;
+}
+
+/* ============================================================
+   التحقق من الوضع الليلي الحالي
+   ============================================================ */
+export function isDarkMode() {
+  return document.body.classList.contains('dark-mode');
 }
