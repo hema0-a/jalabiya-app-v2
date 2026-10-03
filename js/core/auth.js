@@ -1,12 +1,16 @@
 /* ============================================================
-   auth.js - نظام القفل والتحقق (V2)
-   (مُحدَّث: Rate Limiting دائم + شاشة قفل + تشفير PIN)
+   auth.js - نظام القفل والتحقق (V2.1 - آمن)
+   ------------------------------------------------------------
+   - التحقق من PIN عبر SHA-256 (آمن)
+   - ترقية تلقائية من الصيغ القديمة
+   - إصلاح الجلسة المنتهية
+   - إخفاء تلميح PIN الافتراضي بعد تغييره
    ============================================================ */
 
 import { APP_CONFIG, DEFAULT_DB, DEFAULT_SETTINGS } from './config.js';
 import * as storage from './storage.js';
 import { events, EVENTS } from './events.js';
-import { encryptPin, decryptPin } from './pin-crypto.js';
+import { hashPin, verifyPinAgainstStored } from './pin-crypto.js';
 
 /* ============================================================
    حالة النظام (State)
@@ -15,16 +19,17 @@ let idleTimer = null;
 let isLocked = true;
 
 /* ============================================================
-   Rate Limiting - مخزّن بشكل دائم
+   Rate Limiting
    ============================================================ */
 const FAILED_ATTEMPTS_KEY = 'jalabiya_v2_failed_attempts';
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 function loadFailedAttempts() {
   try {
     const raw = localStorage.getItem(FAILED_ATTEMPTS_KEY);
     if (!raw) return { count: 0, until: 0, timestamp: 0 };
     const data = JSON.parse(raw);
-    if (data.timestamp && Date.now() - data.timestamp > 86400000) {
+    if (data.timestamp && Date.now() - data.timestamp > ONE_DAY_MS) {
       localStorage.removeItem(FAILED_ATTEMPTS_KEY);
       return { count: 0, until: 0, timestamp: 0 };
     }
@@ -47,75 +52,100 @@ function saveFailedAttempts(count, until = 0) {
 }
 
 function clearFailedAttempts() {
-  try {
-    localStorage.removeItem(FAILED_ATTEMPTS_KEY);
-  } catch (e) { /* ignore */ }
+  try { localStorage.removeItem(FAILED_ATTEMPTS_KEY); } catch (e) { /* ignore */ }
 }
 
 /* ============================================================
-   دوال التحقق من PIN
+   التحقق من PIN (async الآن)
    ============================================================ */
-
-export function verifyPin(inputPin) {
+export async function verifyPin(inputPin) {
   const attemptData = loadFailedAttempts();
 
+  // 1. فحص الحظر المؤقت
   if (attemptData.until && Date.now() < attemptData.until) {
     const remaining = Math.ceil((attemptData.until - Date.now()) / 1000);
-    return {
-      success: false,
-      message: `محظور مؤقتاً. انتظر ${remaining} ثانية`
-    };
+    return { success: false, message: `محظور مؤقتاً. انتظر ${remaining} ثانية` };
   }
 
+  // 2. فحص صيغة PIN
   if (!/^\d{4}$/.test(String(inputPin))) {
-    return {
-      success: false,
-      message: 'الرقم السري يجب أن يكون 4 أرقام'
-    };
+    return { success: false, message: 'الرقم السري يجب أن يكون 4 أرقام' };
   }
 
+  // 3. جلب PIN المخزن
   const db = storage.loadDB() || { ...DEFAULT_DB };
-  const correctPin = decryptPin(db.password) || DEFAULT_DB.password;
+  const storedPin = db.password || DEFAULT_DB.password;
 
-  if (String(inputPin) === String(correctPin)) {
+  // 4. التحقق الآمن
+  let isValid = false;
+  try {
+    isValid = await verifyPinAgainstStored(inputPin, storedPin);
+  } catch (e) {
+    console.error('⚠️ [Auth] خطأ أثناء التحقق:', e);
+    return { success: false, message: 'حدث خطأ في التحقق' };
+  }
+
+  // 5. النجاح
+  if (isValid) {
     clearFailedAttempts();
     saveSession(true);
-    return { success: true, message: 'تم الدخول بنجاح' };
-  } else {
-    const newCount = (attemptData.count || 0) + 1;
 
-    if (newCount >= APP_CONFIG.maxPinAttempts) {
-      const lockUntil = Date.now() + (APP_CONFIG.pinLockSeconds * 1000);
-      saveFailedAttempts(0, lockUntil);
-      return {
-        success: false,
-        message: `محاولات كثيرة خاطئة! انتظر ${APP_CONFIG.pinLockSeconds} ثانية`
-      };
+    // ✅ ترقية تلقائية إلى SHA-256 إذا كان PIN بصيغة قديمة
+    if (!String(storedPin).startsWith('sha256:')) {
+      try {
+        db.password = await hashPin(inputPin);
+        db.updatedAt = Date.now();
+        storage.saveDB(db);
+        console.log('✅ [Auth] تم ترقية PIN إلى SHA-256');
+      } catch (e) {
+        console.warn('⚠️ [Auth] فشل ترقية PIN:', e);
+      }
     }
 
-    saveFailedAttempts(newCount);
+    return { success: true, message: 'تم الدخول بنجاح' };
+  }
+
+  // 6. الفشل
+  const newCount = (attemptData.count || 0) + 1;
+
+  if (newCount >= APP_CONFIG.maxPinAttempts) {
+    const lockUntil = Date.now() + (APP_CONFIG.pinLockSeconds * 1000);
+    saveFailedAttempts(0, lockUntil);
     return {
       success: false,
-      message: `رقم خاطئ. تبقى ${APP_CONFIG.maxPinAttempts - newCount} محاولات`
+      message: `محاولات كثيرة خاطئة! انتظر ${APP_CONFIG.pinLockSeconds} ثانية`
     };
   }
+
+  saveFailedAttempts(newCount);
+  return {
+    success: false,
+    message: `رقم خاطئ. تبقى ${APP_CONFIG.maxPinAttempts - newCount} محاولات`
+  };
 }
 
-export function changePin(newPin) {
+/* ============================================================
+   تغيير الـ PIN (async الآن)
+   ============================================================ */
+export async function changePin(newPin) {
   if (!/^\d{4}$/.test(String(newPin))) return false;
 
-  const db = storage.loadDB() || { ...DEFAULT_DB };
-  db.password = encryptPin(String(newPin));
-  db.updatedAt = Date.now();
-  storage.saveDB(db);
-  clearFailedAttempts();
-  return true;
+  try {
+    const db = storage.loadDB() || { ...DEFAULT_DB };
+    db.password = await hashPin(String(newPin));
+    db.updatedAt = Date.now();
+    storage.saveDB(db);
+    clearFailedAttempts();
+    return true;
+  } catch (e) {
+    console.error('⚠️ [Auth] فشل تغيير PIN:', e);
+    return false;
+  }
 }
 
 /* ============================================================
    إدارة الجلسة
    ============================================================ */
-
 function saveSession(unlocked) {
   storage.saveSession({
     unlocked: unlocked,
@@ -128,12 +158,13 @@ export function checkSession() {
   const session = storage.loadSession();
   if (!session) return false;
 
-  const ONE_DAY = 24 * 60 * 60 * 1000;
-  if (session.unlocked && (Date.now() - session.timestamp) < ONE_DAY) {
+  if (session.unlocked && (Date.now() - session.timestamp) < ONE_DAY_MS) {
     isLocked = false;
     return true;
   }
 
+  // ✅ إصلاح: مسح الجلسة المنتهية
+  storage.clearSession();
   return false;
 }
 
@@ -150,10 +181,6 @@ export function unlock() {
   events.emit('auth:unlocked');
 }
 
-function clearSession() {
-  storage.clearSession();
-}
-
 export function getIsLocked() {
   return isLocked;
 }
@@ -161,7 +188,6 @@ export function getIsLocked() {
 /* ============================================================
    القفل التلقائي (Idle Auto-Lock)
    ============================================================ */
-
 export function startIdleTimer() {
   resetIdleTimer();
 
@@ -190,7 +216,6 @@ export function stopIdleTimer() {
 /* ============================================================
    شاشة القفل (UI)
    ============================================================ */
-
 export function renderLockScreen() {
   const existing = document.getElementById('lock-screen');
   if (existing) existing.remove();
@@ -231,6 +256,14 @@ export function renderLockScreen() {
     }
   }
 
+  // ✅ إظهار التلميح فقط عند أول تشغيل (PIN لم يُغيَّر بعد)
+  const db = storage.loadDB();
+  const storedPin = db && db.password ? String(db.password) : '0000';
+  const isDefaultPin = (
+    storedPin === '0000' ||                          // نص عادي افتراضي
+    storedPin === 'enc:MDAwMA=='                     // Base64 لـ "0000"
+  );
+
   lockScreen.innerHTML = `
     ${logoHtml}
     <h1 style="color: white; margin-bottom: 8px; font-size: 22px; text-align: center; text-shadow: 0 2px 8px rgba(0,0,0,0.5);">${workshopName}</h1>
@@ -243,13 +276,14 @@ export function renderLockScreen() {
       <button class="numpad-btn" data-num="0" style="padding: 18px; font-size: 22px; font-weight: bold; border-radius: 50%; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.15); color: white; cursor: pointer; backdrop-filter: blur(10px);">0</button>
       <button class="numpad-btn" data-action="submit" style="padding: 18px; font-size: 18px; border-radius: 50%; border: none; background: linear-gradient(135deg, #B8863B, #8F6626); color: white; cursor: pointer; box-shadow: 0 4px 12px rgba(184,134,59,0.5);">✓</button>
     </div>
-    <p style="color: rgba(255,255,255,0.6); font-size: 12px; margin-top: 20px;">الرقم الافتراضي: 0000</p>
+    ${isDefaultPin ? '<p style="color: rgba(255,255,255,0.6); font-size: 12px; margin-top: 20px;">💡 الرقم الافتراضي: 0000</p>' : ''}
   `;
 
   document.body.appendChild(lockScreen);
 
   const pinInput = lockScreen.querySelector('#pin-input');
   const message = lockScreen.querySelector('#pin-message');
+  let isVerifying = false;
   setTimeout(() => pinInput.focus(), 100);
 
   lockScreen.querySelectorAll('.numpad-btn').forEach(btn => {
@@ -285,13 +319,22 @@ export function renderLockScreen() {
     }
   });
 
-  function attemptUnlock() {
+  async function attemptUnlock() {
+    if (isVerifying) return;
+
     const pin = pinInput.value;
     if (pin.length < 4) {
       message.textContent = 'أدخل 4 أرقام';
       return;
     }
-    const result = verifyPin(pin);
+
+    isVerifying = true;
+    message.style.color = 'rgba(255,255,255,0.7)';
+    message.textContent = '... جاري التحقق';
+
+    const result = await verifyPin(pin);
+    isVerifying = false;
+
     if (result.success) {
       message.style.color = '#90ee90';
       message.textContent = '✅ ' + result.message;
@@ -317,7 +360,6 @@ export function renderLockScreen() {
 /* ============================================================
    تهيئة النظام
    ============================================================ */
-
 export function initAuth() {
   if (checkSession()) {
     isLocked = false;
