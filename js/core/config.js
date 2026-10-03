@@ -71,6 +71,10 @@ export const DEFAULT_SETTINGS = {
   referralRewardPercent: 5,
   trashRetentionDays: 7,
   dailyOrderLimit: 700,
+   // ===== إعدادات شاشة القفل =====
+lockScreenBackground: null,
+lockScreenMessage: 'أدخل الرقم السري للدخول',
+lockScreenShowLogo: true,
    // ===== إعدادات تجميع القياسات =====
 enableMeasurementGrouping: false,
 measurementTolerance: 2,
