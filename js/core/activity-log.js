@@ -101,8 +101,18 @@ export function getActivityInfo(typeId) {
   return { id: typeId, label: 'نشاط', icon: '📌', color: '#666' };
 }
 
-/* تفعيل التسجيل التلقائي */
+/* ============================================================
+   تفعيل التسجيل التلقائي (مع حماية من التكرار)
+   ============================================================ */
+let __activityLoggerInitialized = false;
+
 export function initActivityLogger() {
+  if (__activityLoggerInitialized) {
+    console.log('ℹ️ [ActivityLog] مُفعَّل مسبقاً — تخطي');
+    return;
+  }
+  __activityLoggerInitialized = true;
+
   events.on(EVENTS.CUSTOMER_ADDED, (c) => logActivity(ACTIVITY_TYPES.CUSTOMER_ADDED.id, `إضافة عميل: ${c.name}`, { id: c.id }));
   events.on(EVENTS.CUSTOMER_UPDATED, (c) => logActivity(ACTIVITY_TYPES.CUSTOMER_UPDATED.id, `تعديل عميل: ${c.name}`, { id: c.id }));
   events.on(EVENTS.CUSTOMER_DELETED, (c) => logActivity(ACTIVITY_TYPES.CUSTOMER_DELETED.id, `حذف عميل: ${c.name}`, { id: c.id }));
@@ -133,4 +143,4 @@ export function initActivityLogger() {
   events.on('houseExpense:deleted', (e) => logActivity(ACTIVITY_TYPES.HOUSE_EXPENSE_DELETED.id, `حذف مصروف بيت: ${e.amount} جنيه`, { id: e.id }));
 
   console.log('✅ تم تفعيل سجل النشاط التلقائي');
-}
+                                                        }
