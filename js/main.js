@@ -1,4 +1,4 @@
-/* ============================================================
+٧/* ============================================================
    main.js - نقطة الدخول الرئيسية النهائية الشاملة (V2)
    ============================================================ */
 
@@ -22,6 +22,7 @@ import { renderDashboardPage } from './pages/dashboard.js';
 import { renderCustomersPage } from './pages/customers.js';
 import { renderOrdersPage } from './pages/orders.js';
 import { renderPaymentsPage } from './pages/payments.js';
+import { renderCalendarPage } from './pages/calendar.js';
 
 // استيراد الصفحات - إدارة الورشة
 import { renderInventoryPage } from './pages/inventory.js';
@@ -112,6 +113,7 @@ function startApp() {
   router.register('/customers', renderCustomersPage);
   router.register('/orders', renderOrdersPage);
   router.register('/payments', renderPaymentsPage);
+   router.register('/calendar', renderCalendarPage);
   
   // إدارة الورشة
   router.register('/inventory', renderInventoryPage);
