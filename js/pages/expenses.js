@@ -1,37 +1,26 @@
 /* ============================================================
-   expenses.js - صفحة إدارة مصروفات الورشة (V2)
-   (تدعم الإضافة، التعديل، الحذف، البحث، والفلترة)
+   expenses.js - صفحة مصروفات الورشة (V2)
+   (النسخة الكاملة الشاملة - مع ربط FAB + escapeHtml)
    ============================================================ */
 
 import * as db from '../core/db.js';
 import { toast } from '../ui/toast.js';
 import { openModal, closeModal } from '../ui/modal.js';
-import { today, money, formatDate } from '../core/utils.js';
+import { today, money, formatDate, escapeHtml } from '../core/utils.js';
+import { EXPENSE_CATEGORIES } from '../core/config.js';
 
-// متغيرات حالة الصفحة
 let searchQuery = '';
 let selectedCategory = 'all';
 
-// التصنيفات المتاحة للمصروفات
-const EXPENSE_CATEGORIES = [
-  { id: 'materials', label: 'خامات وأقمشة', icon: '🧵' },
-  { id: 'rent', label: 'إيجار', icon: '🏠' },
-  { id: 'electricity', label: 'كهرباء ومياه', icon: '💡' },
-  { id: 'workers', label: 'أجور عمال', icon: '👷' },
-  { id: 'maintenance', label: 'صيانة', icon: '🔧' },
-  { id: 'transport', label: 'مواصلات', icon: '🚗' },
-  { id: 'supplies', label: 'أدوات ومستلزمات', icon: '📦' },
-  { id: 'other', label: 'أخرى', icon: '📌' }
-];
-
+/* ============================================================
+   الصفحة الرئيسية
+   ============================================================ */
 export function renderExpensesPage(container) {
   const allExpenses = db.getExpenses();
 
-  // 1. تصفية المصروفات
+  // تصفية
   const expenses = allExpenses.filter(e => {
-    // فلترة بالتصنيف
     if (selectedCategory !== 'all' && e.category !== selectedCategory) return false;
-    // فلترة بالبحث
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       const note = (e.note || '').toLowerCase();
@@ -41,45 +30,55 @@ export function renderExpensesPage(container) {
     return true;
   }).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
-  // 2. حساب الإحصائيات
-  const totalAll = allExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
-  const totalFiltered = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
-
-  // حساب مصروفات الشهر الحالي
+  // الإحصائيات
   const now = new Date();
   const currentMonth = now.getMonth();
   const currentYear = now.getFullYear();
-  const monthlyTotal = allExpenses.filter(e => {
+
+  const monthExpenses = allExpenses.filter(e => {
     const d = new Date(e.date);
     return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-  }).reduce((sum, e) => sum + (e.amount || 0), 0);
+  });
 
-  // 3. بناء الهيكل الأساسي
+  const totalAll = allExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+  const monthTotal = monthExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+  const totalFiltered = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+
+  // حساب توزيع التصنيفات (للشهر الحالي)
+  const categoryTotals = {};
+  monthExpenses.forEach(e => {
+    categoryTotals[e.category] = (categoryTotals[e.category] || 0) + (e.amount || 0);
+  });
+
   let html = `
     <div class="card">
       <div class="flex-between mb-2">
-        <h2 class="card-title" style="margin:0; border:none;">🧵 مصروفات الورشة</h2>
+        <h2 class="card-title no-border" style="margin:0;">💸 مصروفات الورشة</h2>
         <button class="btn btn-primary" id="add-expense-btn">+ إضافة مصروف</button>
       </div>
 
-      <!-- ملخص الإحصائيات -->
-      <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 16px;">
-        <div style="text-align: center; padding: 12px; background: var(--bg-color); border-radius: var(--radius-md);">
-          <div style="font-size: 18px; font-weight: 800; color: var(--accent-color);">${money(monthlyTotal)}</div>
-          <div style="font-size: 11px; color: var(--text-muted);">مصروفات هذا الشهر</div>
+      <!-- الإحصائيات -->
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px;">
+        <div class="stat-card" style="padding: 10px 6px;">
+          <div class="stat-value" style="font-size: 16px; color: var(--accent-color);">${money(monthTotal)}</div>
+          <div class="stat-label">هذا الشهر</div>
         </div>
-        <div style="text-align: center; padding: 12px; background: var(--bg-color); border-radius: var(--radius-md);">
-          <div style="font-size: 18px; font-weight: 800; color: #dc3545;">${money(totalAll)}</div>
-          <div style="font-size: 11px; color: var(--text-muted);">إجمالي المصروفات</div>
+        <div class="stat-card" style="padding: 10px 6px;">
+          <div class="stat-value" style="font-size: 16px; color: #dc3545;">${money(totalAll)}</div>
+          <div class="stat-label">الإجمالي</div>
+        </div>
+        <div class="stat-card" style="padding: 10px 6px;">
+          <div class="stat-value" style="font-size: 16px;">${allExpenses.length}</div>
+          <div class="stat-label">عدد المصاريف</div>
         </div>
       </div>
 
-      <!-- حقل البحث -->
+      <!-- البحث -->
       <div class="form-group" style="margin-bottom: 10px;">
-        <input type="text" id="search-expense-input" class="form-control" placeholder="🔍 ابحث في المصروفات..." value="${searchQuery}">
+        <input type="text" id="search-expense-input" class="form-control" placeholder="🔍 ابحث في المصروفات..." value="${escapeHtml(searchQuery)}">
       </div>
 
-      <!-- أزرار الفلترة بالتصنيف -->
+      <!-- فلترة التصنيف -->
       <div style="display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 12px;">
         <button class="btn ${selectedCategory === 'all' ? 'btn-primary' : 'btn-outline'} category-filter-btn" data-cat="all" style="font-size: 12px; padding: 6px 12px; white-space: nowrap; min-height: 32px;">
           الكل
@@ -92,11 +91,11 @@ export function renderExpensesPage(container) {
       </div>
   `;
 
-  // 4. عرض قائمة المصروفات
+  // عرض القائمة
   if (expenses.length === 0) {
     html += `
-      <div class="text-center" style="padding: 40px 10px; color: var(--text-muted);">
-        <div style="font-size: 40px; margin-bottom: 10px;">🧵</div>
+      <div class="empty-state">
+        <div class="empty-state-icon">💸</div>
         <p>${searchQuery || selectedCategory !== 'all' ? 'لا توجد نتائج مطابقة.' : 'لا توجد مصروفات مسجلة حتى الآن.'}</p>
       </div>
     `;
@@ -114,13 +113,13 @@ export function renderExpensesPage(container) {
     expenses.forEach(e => {
       const cat = EXPENSE_CATEGORIES.find(c => c.id === e.category) || EXPENSE_CATEGORIES[7];
       html += `
-        <div class="expense-item" data-id="${e.id}" style="border: 1px solid var(--border-color); padding: 12px; border-radius: var(--radius-md); background: var(--bg-color); cursor: pointer;">
-          <div class="flex-between">
-            <div style="font-weight:bold; font-size:15px;">${cat.icon} ${cat.label}</div>
-            <div style="font-weight:bold; color: #dc3545; font-size: 15px;">${money(e.amount)}</div>
+        <div class="expense-item" data-id="${e.id}" style="border: 1px solid var(--border-color); border-right: 4px solid var(--accent-color); padding: 12px; border-radius: var(--radius-md); background: var(--bg-color); cursor: pointer;">
+          <div class="flex-between" style="margin-bottom: 4px;">
+            <div style="font-weight: bold; font-size: 15px;">${cat.icon} ${cat.label}</div>
+            <div style="font-weight: bold; color: #dc3545; font-size: 15px;">${money(e.amount)}</div>
           </div>
-          <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">
-            📅 ${formatDate(e.date)}${e.note ? ' | 📝 ' + e.note : ''}
+          <div style="font-size: 12px; color: var(--text-muted);">
+            📅 ${formatDate(e.date)}${e.note ? ' | 📝 ' + escapeHtml(e.note) : ''}
           </div>
         </div>
       `;
@@ -129,21 +128,39 @@ export function renderExpensesPage(container) {
   }
 
   html += `</div>`;
-  container.innerHTML = html;
 
-  // ============================================================
-  // دوال مساعدة
-  // ============================================================
-  
-  function getCategoryLabel(catId) {
-    const cat = EXPENSE_CATEGORIES.find(c => c.id === catId);
-    return cat ? cat.label : 'أخرى';
+  // قسم توزيع التصنيفات (إن وجدت مصاريف هذا الشهر)
+  if (Object.keys(categoryTotals).length > 0) {
+    const sortedCats = Object.entries(categoryTotals).sort((a, b) => b[1] - a[1]);
+    const maxCatTotal = sortedCats[0][1];
+    
+    html += `
+      <div class="card">
+        <h3 class="card-title" style="font-size: 15px;">📊 توزيع مصاريف الشهر</h3>
+        ${sortedCats.map(([catId, total]) => {
+          const cat = EXPENSE_CATEGORIES.find(c => c.id === catId) || EXPENSE_CATEGORIES[7];
+          const percent = Math.round((total / maxCatTotal) * 100);
+          return `
+            <div style="padding: 6px 0; border-bottom: 1px solid var(--border-color);">
+              <div class="flex-between" style="margin-bottom: 4px;">
+                <span style="font-size: 13px; font-weight: 600;">${cat.icon} ${cat.label}</span>
+                <strong style="font-size: 13px; color: #dc3545;">${money(total)} ج</strong>
+              </div>
+              <div style="background: var(--border-color); height: 6px; border-radius: var(--radius-full); overflow: hidden;">
+                <div style="width: ${percent}%; height: 100%; background: linear-gradient(90deg, var(--accent-color), var(--accent-light)); border-radius: var(--radius-full);"></div>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
   }
 
-  // ============================================================
-  // نموذج الإضافة/التعديل
-  // ============================================================
-  
+  container.innerHTML = html;
+
+  /* ============================================================
+     نموذج إضافة/تعديل مصروف
+     ============================================================ */
   function openExpenseModal(expense = null) {
     const isEdit = expense !== null;
     const title = isEdit ? 'تعديل المصروف' : 'إضافة مصروف جديد';
@@ -154,7 +171,7 @@ export function renderExpensesPage(container) {
     }).join('');
 
     const formHtml = `
-      <h3 class="card-title">${title}</h3>
+      <h3 class="card-title no-border">${title}</h3>
       <form id="expense-form">
         <div class="form-group">
           <label>التصنيف *</label>
@@ -164,7 +181,7 @@ export function renderExpensesPage(container) {
         </div>
         <div class="form-group">
           <label>المبلغ *</label>
-          <input type="number" id="expense-amount" class="form-control" placeholder="0" value="${isEdit ? expense.amount : ''}" required>
+          <input type="number" id="expense-amount" class="form-control" value="${isEdit ? expense.amount : ''}" placeholder="0" min="0" step="any" required>
         </div>
         <div class="form-group">
           <label>التاريخ *</label>
@@ -172,7 +189,7 @@ export function renderExpensesPage(container) {
         </div>
         <div class="form-group">
           <label>ملاحظات</label>
-          <input type="text" id="expense-note" class="form-control" placeholder="اختياري" value="${isEdit ? (expense.note || '') : ''}">
+          <input type="text" id="expense-note" class="form-control" value="${isEdit ? escapeHtml(expense.note || '') : ''}" placeholder="اختياري">
         </div>
         <div class="flex-between mt-2">
           <div>
@@ -188,11 +205,8 @@ export function renderExpensesPage(container) {
 
     openModal(formHtml);
 
-    const form = document.getElementById('expense-form');
-    
-    form.addEventListener('submit', (e) => {
+    document.getElementById('expense-form').addEventListener('submit', (e) => {
       e.preventDefault();
-      
       const category = document.getElementById('expense-category').value;
       const amount = parseFloat(document.getElementById('expense-amount').value);
       const date = document.getElementById('expense-date').value;
@@ -231,9 +245,9 @@ export function renderExpensesPage(container) {
     }
   }
 
-  // ============================================================
-  // ربط الأحداث
-  // ============================================================
+  /* ============================================================
+     ربط الأحداث
+     ============================================================ */
 
   // زر الإضافة
   const addBtn = container.querySelector('#add-expense-btn');
@@ -241,7 +255,7 @@ export function renderExpensesPage(container) {
     addBtn.addEventListener('click', () => openExpenseModal(null));
   }
 
-  // حقل البحث
+  // البحث
   const searchInput = container.querySelector('#search-expense-input');
   if (searchInput) {
     searchInput.addEventListener('input', (e) => {
@@ -256,7 +270,7 @@ export function renderExpensesPage(container) {
     });
   }
 
-  // أزرار الفلترة بالتصنيف
+  // فلترة التصنيف
   container.querySelectorAll('.category-filter-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       selectedCategory = btn.dataset.cat;
@@ -267,9 +281,32 @@ export function renderExpensesPage(container) {
   // النقر على مصروف للتعديل
   container.querySelectorAll('.expense-item').forEach(item => {
     item.addEventListener('click', () => {
-      const id = item.dataset.id;
-      const expense = db.getExpense(id);
+      const expense = db.getExpense(item.dataset.id);
       if (expense) openExpenseModal(expense);
     });
   });
+
+  /* ============================================================
+     ✅ ربط FAB (الإجراءات السريعة)
+     ============================================================ */
+  if (window.__expensesQuickListener) {
+    document.removeEventListener('quick-action', window.__expensesQuickListener);
+  }
+  window.__expensesQuickListener = (e) => {
+    if (e.detail.action === 'new-expense') {
+      setTimeout(() => {
+        const addBtn = container.querySelector('#add-expense-btn');
+        if (addBtn) addBtn.click();
+      }, 150);
+    }
+  };
+  document.addEventListener('quick-action', window.__expensesQuickListener);
+}
+
+/* ============================================================
+   دالة مساعدة: ترجمة التصنيف
+   ============================================================ */
+function getCategoryLabel(catId) {
+  const cat = EXPENSE_CATEGORIES.find(c => c.id === catId);
+  return cat ? cat.label : 'أخرى';
 }
