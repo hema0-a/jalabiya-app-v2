@@ -86,55 +86,5 @@
        ============================================================ -->
   <script type="module" src="js/main.js"></script>
 
-  <!-- ============================================================
-       تسجيل Service Worker (PWA)
-       ============================================================ -->
-  <script>
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('sw.js', { scope: './' })
-          .then((registration) => {
-            console.log('✅ [PWA] Service Worker registered:', registration.scope);
-
-            // فحص التحديثات
-            registration.addEventListener('updatefound', () => {
-              const newWorker = registration.installing;
-              console.log('🔄 [PWA] New Service Worker found');
-
-              newWorker.addEventListener('statechange', () => {
-                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                  console.log('🎉 [PWA] New version available! Reload to update.');
-                }
-              });
-            });
-          })
-          .catch((error) => {
-            console.warn('⚠️ [PWA] Service Worker registration failed:', error);
-          });
-      });
-    }
-
-    // عرض زر التثبيت المخصص (اختياري)
-    let deferredPrompt = null;
-    window.addEventListener('beforeinstallprompt', (e) => {
-      e.preventDefault();
-      deferredPrompt = e;
-      console.log('📱 [PWA] Install prompt available');
-
-      // يمكن استخدام deferredPrompt.prompt() عند الضغط على زر مخصص
-      window.__installPWA = async () => {
-        if (!deferredPrompt) return;
-        deferredPrompt.prompt();
-        const { outcome } = await deferredPrompt.userChoice;
-        console.log('📱 [PWA] Install outcome:', outcome);
-        deferredPrompt = null;
-      };
-    });
-
-    window.addEventListener('appinstalled', () => {
-      console.log('✅ [PWA] App installed successfully');
-      deferredPrompt = null;
-    });
-  </script>
 </body>
 </html>
