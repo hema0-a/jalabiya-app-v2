@@ -5,7 +5,7 @@
 
 import * as db from '../core/db.js';
 import { toast } from '../ui/toast.js';
-import { saveTheme, setDisplayMode, applyDisplayModes } from '../core/theme.js';
+import { saveTheme, setDisplayMode, applyDisplayModes, applyThemePreset, saveFontSettings, resetFontSettings, THEME_PRESETS, FONT_FAMILIES, FONT_SIZES } from '../core/theme.js';
 import { changePin } from '../core/auth.js';
 import { APP_CONFIG, DEFAULT_SETTINGS } from '../core/config.js';
 import * as storage from '../core/storage.js';
@@ -190,6 +190,65 @@ ${renderGarmentTypesSection()}
         <button class="btn btn-primary btn-full" id="save-theme-btn">حفظ الألوان</button>
         <button class="btn btn-outline btn-full mt-2" id="reset-theme-btn">استعادة الألوان الافتراضية</button>
       </div>
+<!-- ============================================================
+     الثيمات الجاهزة (جديد)
+     ============================================================ -->
+<div class="card" style="background: var(--bg-color); border: none; margin-bottom: 16px;">
+  <h3 style="font-size: 16px; margin-bottom: 12px;">🎨 الثيمات الجاهزة</h3>
+  <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
+    اختر ثيماً جاهزاً بضغطة واحدة، وسيتم تطبيقه على التطبيق بالكامل.
+  </p>
+  <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
+    ${Object.keys(THEME_PRESETS).map(key => {
+      const t = THEME_PRESETS[key];
+      return `
+        <button type="button" class="theme-preset-btn" data-preset="${key}" style="padding: 12px; background: var(--surface-color); border: 2px solid var(--border-color); border-radius: var(--radius-md); cursor: pointer; text-align: center;">
+          <div style="display: flex; justify-content: center; gap: 4px; margin-bottom: 6px;">
+            <div style="width: 18px; height: 18px; border-radius: 50%; background: ${t.colors.primary};"></div>
+            <div style="width: 18px; height: 18px; border-radius: 50%; background: ${t.colors.accent};"></div>
+            <div style="width: 18px; height: 18px; border-radius: 50%; background: ${t.colors.bg}; border: 1px solid var(--border-color);"></div>
+          </div>
+          <div style="font-size: 12px; font-weight: 700;">${t.icon} ${t.name}</div>
+        </button>
+      `;
+    }).join('')}
+  </div>
+</div>
+
+<!-- ============================================================
+     تخصيص الخطوط (جديد)
+     ============================================================ -->
+<div class="card" style="background: var(--bg-color); border: none; margin-bottom: 16px;">
+  <h3 style="font-size: 16px; margin-bottom: 12px;">🔤 تخصيص الخطوط</h3>
+  <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
+    اختر نوع وحجم الخط المناسب لك.
+  </p>
+
+  <div class="form-group">
+    <label>نوع الخط</label>
+    <select id="font-family-select" class="form-control">
+      ${Object.keys(FONT_FAMILIES).map(key => {
+        const f = FONT_FAMILIES[key];
+        const selected = settings.fontFamily === key ? 'selected' : '';
+        return `<option value="${key}" ${selected}>${f.name}</option>`;
+      }).join('')}
+    </select>
+  </div>
+
+  <div class="form-group">
+    <label>حجم الخط</label>
+    <select id="font-size-select" class="form-control">
+      ${Object.keys(FONT_SIZES).map(key => {
+        const s = FONT_SIZES[key];
+        const selected = settings.fontSize === key ? 'selected' : '';
+        return `<option value="${key}" ${selected}>${s.name}</option>`;
+      }).join('')}
+    </select>
+  </div>
+
+  <button class="btn btn-primary btn-full" id="save-font-btn">حفظ الخط</button>
+  <button class="btn btn-outline btn-full mt-2" id="reset-font-btn">استعادة الافتراضي</button>
+</div>
 
       <!-- ============================================================
            أوضاع العرض
@@ -351,6 +410,46 @@ if (saveDailyLimitBtn) {
     toast.success('تم حفظ الحد اليومي بنجاح');
   });
 }
+   // ============================================================
+// الثيمات الجاهزة
+// ============================================================
+container.querySelectorAll('.theme-preset-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const preset = btn.dataset.preset;
+    const presetInfo = THEME_PRESETS[preset];
+    if (confirm(`هل تريد تطبيق ثيم "${presetInfo.name}"؟`)) {
+      if (applyThemePreset(preset)) {
+        toast.success(`تم تطبيق ثيم ${presetInfo.name} بنجاح`);
+        renderSettingsPage(container);
+      }
+    }
+  });
+});
+
+// ============================================================
+// تخصيص الخطوط
+// ============================================================
+const saveFontBtn = container.querySelector('#save-font-btn');
+if (saveFontBtn) {
+  saveFontBtn.addEventListener('click', () => {
+    const fontFamily = container.querySelector('#font-family-select').value;
+    const fontSize = container.querySelector('#font-size-select').value;
+    saveFontSettings(fontFamily, fontSize);
+    toast.success('تم حفظ الخط بنجاح');
+  });
+}
+
+const resetFontBtn = container.querySelector('#reset-font-btn');
+if (resetFontBtn) {
+  resetFontBtn.addEventListener('click', () => {
+    if (confirm('هل تريد استعادة الخط الافتراضي؟')) {
+      resetFontSettings();
+      toast.success('تم استعادة الخط الافتراضي');
+      renderSettingsPage(container);
+    }
+  });
+}
+
    // ============================================================
 // تخصيص شاشة القفل
 // ============================================================
