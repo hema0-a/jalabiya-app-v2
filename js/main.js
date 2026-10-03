@@ -13,6 +13,7 @@ import { router } from './ui/router.js';
 import { loadTheme } from './core/theme.js';
 import { initAuth, startIdleTimer } from './core/auth.js';
 import { initActivityLogger } from './core/activity-log.js';
+import { showDueOrdersNotification } from './core/notifications.js';
 import { cleanOldTrashItems } from './core/trash.js';
 
 // استيراد الصفحات - العمليات
@@ -44,6 +45,8 @@ import { renderTrashPage } from './pages/trash.js';
 import { renderReportsPage } from './pages/reports.js';
 import { renderKpisPage } from './pages/kpis.js';
 import { renderSettingsPage } from './pages/settings.js';
+import { renderCloudSyncPage } from './pages/cloud-sync.js';
+import { initSync, syncNow } from './core/sync.js';
 
 console.log(`🚀 ${APP_CONFIG.name} v${APP_CONFIG.version}`);
 
@@ -131,6 +134,7 @@ function startApp() {
   // التقارير والإعدادات
    router.register('/kpis', renderKpisPage);
   router.register('/reports', renderReportsPage);
+   router.register('/cloud-sync', renderCloudSyncPage);
   router.register('/settings', renderSettingsPage);
 
   // تشغيل الراوتر
@@ -144,7 +148,25 @@ function startApp() {
     closeSidebar();
   });
 
-  console.log('✅ التطبيق جاهز');
+    console.log('✅ التطبيق جاهز');
+
+  // عرض إشعارات المواعيد
+  setTimeout(() => {
+    showDueOrdersNotification();
+  }, 1000);
+
+  // تفعيل المزامنة السحابية
+  setTimeout(async () => {
+    try {
+      const syncReady = await initSync();
+      if (syncReady) {
+        console.log('☁️ المزامنة السحابية مفعّلة');
+        setTimeout(() => syncNow(), 2000);
+      }
+    } catch (e) {
+      console.warn('⚠️ فشل تفعيل المزامنة:', e);
+    }
+  }, 1500);
 }
 
 /* ============================================================
@@ -197,5 +219,12 @@ if (document.readyState === 'loading') {
 } else {
   init();
 }
+// محاولة مزامنة أخيرة عند إغلاق الصفحة
+window.addEventListener('beforeunload', () => {
+  try {
+    if (navigator.onLine) syncNow();
+  } catch (e) { /* ignore */ }
+});
+
 
 window.__app = { version: APP_CONFIG.version, db, events, EVENTS };
