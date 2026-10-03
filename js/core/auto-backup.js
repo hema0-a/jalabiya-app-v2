@@ -1,6 +1,7 @@
 /* ============================================================
-   auto-backup.js - النسخ الاحتياطي التلقائي (V2)
+   auto-backup.js - النسخ الاحتياطي التلقائي (V2.1)
    (حفظ نسخ دورية + استرجاع + إدارة)
+   (مُحدَّث: حساب الحجم بالبايتات بدقة عبر Blob)
    ============================================================ */
 
 import * as db from './db.js';
@@ -47,7 +48,8 @@ export function createAutoBackup(reason = 'scheduled') {
   try {
     const data = db.getStateCopy();
     const jsonString = JSON.stringify(data);
-    const sizeKB = (jsonString.length / 1024).toFixed(1);
+    const bytes = new Blob([jsonString]).size;
+    const sizeKB = (bytes / 1024).toFixed(1);
 
     const backup = {
       id: 'backup_' + Date.now(),
@@ -55,7 +57,7 @@ export function createAutoBackup(reason = 'scheduled') {
       date: new Date().toISOString().slice(0, 10),
       time: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
       reason: reason, // 'scheduled' | 'manual' | 'before-import'
-      size: jsonString.length,
+      size: bytes,
       sizeKB: sizeKB,
       payload: data,
       counts: {
