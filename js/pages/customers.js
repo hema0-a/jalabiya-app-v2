@@ -1,56 +1,85 @@
 /* ============================================================
    customers.js - صفحة إدارة العملاء (V2)
-   (النسخة الكاملة مع العرض التدريجي للقوائم الطويلة)
+   (النسخة الكاملة: مقاسات ديناميكية + عرض تدريجي + كل الميزات)
    ============================================================ */
 
 import * as db from '../core/db.js';
 import { toast } from '../ui/toast.js';
 import { openModal, closeModal } from '../ui/modal.js';
 import { today, money, formatDate, escapeHtml } from '../core/utils.js';
-import { DEFAULT_SETTINGS } from '../core/config.js';
+import { DEFAULT_SETTINGS, DEFAULT_MEASUREMENT_FIELDS } from '../core/config.js';
 import * as storage from '../core/storage.js';
 import { previewCustomer } from '../ui/quick-preview.js';
-import { initProgressiveList, resetProgressiveList } from '../core/list-renderer.js';
+import { initProgressiveList } from '../core/list-renderer.js';
 
 let searchQuery = '';
 let filterMode = 'all';
 let sortMode = 'recent';
 
-const MEASUREMENT_FIELDS = [
-  { id: 'shoulder', label: 'الكتف', icon: '📏' },
-  { id: 'chest', label: 'الصدر', icon: '📐' },
-  { id: 'waist', label: 'الوسط', icon: '📏' },
-  { id: 'length', label: 'الطول', icon: '📐' },
-  { id: 'sleeve', label: 'طول الكم', icon: '📏' },
-  { id: 'neck', label: 'الرقبة', icon: '📐' },
-  { id: 'bottom', label: 'الوسع (أسفل)', icon: '📏' },
-  { id: 'hip', label: 'الأرداف', icon: '📐' }
-];
-
 /* ============================================================
-   حساب معلومات الدفع
+   قراءة حقول المقاسات من الإعدادات (ديناميكية)
    ============================================================ */
-function getCustomerPaymentInfo(customerId, allOrders, allPayments) {
-  const customerOrders = allOrders.filter(o => o.customerId === customerId);
-  const orderIds = new Set(customerOrders.map(o => o.id));
+function getMeasurementFields() {
+  const settings = storage.loadSettings() || { ...DEFAULT_SETTINGS };
+  const fields = settings.customMeasurementFields;
 
-  const totalSpent = customerOrders.reduce((s, o) => s + (o.totalPrice || 0), 0);
+  if (!Array.isArray(fields) || fields.length === 0) {
+    return [...DEFAULT_MEASUREMENT_FIELDS];
+  }
 
-  const totalPaid = allPayments
-    .filter(p => orderIds.has(p.orderId))
-    .reduce((s, p) => s + (p.amount || 0), 0);
+  // فلترة الحقول المُفعّلة فقط للعرض
+  return fields.filter(f => f.enabled !== false);
+}
 
-  return {
-    ordersCount: customerOrders.length,
-    totalSpent,
-    totalPaid,
-    remaining: Math.max(0, totalSpent - totalPaid)
-  };
+/* جميع الحقول (مع المُعطّلة) للاستخدام في الحقول الاختيارية */
+function getAllMeasurementFields() {
+  const settings = storage.loadSettings() || { ...DEFAULT_SETTINGS };
+  const fields = settings.customMeasurementFields;
+
+  if (!Array.isArray(fields) || fields.length === 0) {
+    return [...DEFAULT_MEASUREMENT_FIELDS];
+  }
+
+  return fields;
 }
 
 /* ============================================================
-   حساب عدد الطلبات لكل عميل
+   حساب معلومات الدفع (مع Cache للأداء)
    ============================================================ */
+function buildPaymentInfoCache(allOrders, allPayments) {
+  const cache = new Map();
+  const ordersByCustomer = new Map();
+  const paymentsByOrder = new Map();
+
+  allOrders.forEach(o => {
+    if (!ordersByCustomer.has(o.customerId)) ordersByCustomer.set(o.customerId, []);
+    ordersByCustomer.get(o.customerId).push(o);
+  });
+
+  allPayments.forEach(p => {
+    if (!paymentsByOrder.has(p.orderId)) paymentsByOrder.set(p.orderId, []);
+    paymentsByOrder.get(p.orderId).push(p);
+  });
+
+  ordersByCustomer.forEach((orders, customerId) => {
+    const orderIds = new Set(orders.map(o => o.id));
+    const totalSpent = orders.reduce((s, o) => s + (o.totalPrice || 0), 0);
+    let totalPaid = 0;
+    orderIds.forEach(oid => {
+      const pays = paymentsByOrder.get(oid) || [];
+      totalPaid += pays.reduce((s, p) => s + (p.amount || 0), 0);
+    });
+    cache.set(customerId, {
+      ordersCount: orders.length,
+      totalSpent,
+      totalPaid,
+      remaining: Math.max(0, totalSpent - totalPaid)
+    });
+  });
+
+  return cache;
+}
+
 function buildOrdersCountMap(allOrders) {
   const map = {};
   allOrders.forEach(o => {
@@ -60,7 +89,7 @@ function buildOrdersCountMap(allOrders) {
 }
 
 /* ============================================================
-   فتح واتساب
+   واتساب
    ============================================================ */
 function openWhatsApp(phone, message = '') {
   if (!phone) {
@@ -87,6 +116,11 @@ export function renderCustomersPage(container) {
   const vipThreshold = settings.vipThreshold || 3;
 
   const ordersCountMap = buildOrdersCountMap(allOrders);
+  const paymentCache = buildPaymentInfoCache(allOrders, allPayments);
+
+  const getInfo = (id) => paymentCache.get(id) || {
+    ordersCount: 0, totalSpent: 0, totalPaid: 0, remaining: 0
+  };
 
   // تحديث تصنيفات VIP
   allCustomers.forEach(c => {
@@ -116,9 +150,7 @@ export function renderCustomersPage(container) {
   customers = customers.sort((a, b) => {
     if (sortMode === 'name') return (a.name || '').localeCompare(b.name || '');
     if (sortMode === 'spend') {
-      const aInfo = getCustomerPaymentInfo(a.id, allOrders, allPayments);
-      const bInfo = getCustomerPaymentInfo(b.id, allOrders, allPayments);
-      return bInfo.totalSpent - aInfo.totalSpent;
+      return getInfo(b.id).totalSpent - getInfo(a.id).totalSpent;
     }
     return (b.createdAt || 0) - (a.createdAt || 0);
   });
@@ -134,7 +166,7 @@ export function renderCustomersPage(container) {
         <button class="btn btn-primary" id="add-customer-btn">+ إضافة عميل</button>
       </div>
 
-      <!-- إحصائيات -->
+      <!-- الإحصائيات -->
       <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px;">
         <div class="stat-card" style="padding: 10px 6px;">
           <div class="stat-value" style="font-size: 20px;">${totalCustomers}</div>
@@ -155,7 +187,7 @@ export function renderCustomersPage(container) {
         <input type="text" id="search-input" class="form-control" placeholder="🔍 ابحث بالاسم أو رقم الهاتف..." value="${escapeHtml(searchQuery)}">
       </div>
 
-      <!-- فلترة -->
+      <!-- الفلترة -->
       <div class="kanban-toggle">
         <button class="btn ${filterMode === 'all' ? 'btn-primary' : 'btn-outline'} filter-btn" data-filter="all" style="font-size: 12px;">الكل</button>
         <button class="btn ${filterMode === 'vip' ? 'btn-primary' : 'btn-outline'} filter-btn" data-filter="vip" style="font-size: 12px;">👑 VIP</button>
@@ -169,7 +201,6 @@ export function renderCustomersPage(container) {
         <button class="btn ${sortMode === 'name' ? 'btn-primary' : 'btn-outline'} sort-btn" data-sort="name" style="flex:1; font-size: 11px; min-height: 32px;">🔤 أبجدي</button>
       </div>
 
-      <!-- معلومات العدد -->
       ${customers.length > 20 ? `
         <div style="background: #E3F2FD; padding: 8px 12px; border-radius: var(--radius-md); margin-bottom: 12px; font-size: 12px; color: #1565C0;">
           ℹ️ يتم عرض 20 عميلاً في البداية، وسيتم تحميل المزيد عند التمرير.
@@ -183,11 +214,11 @@ export function renderCustomersPage(container) {
 
   container.innerHTML = html;
 
-  // ============================================================
-  // بناء عنصر عميل واحد
-  // ============================================================
+  /* ============================================================
+     بناء عنصر عميل واحد
+     ============================================================ */
   function buildCustomerItem(c) {
-    const info = getCustomerPaymentInfo(c.id, allOrders, allPayments);
+    const info = getInfo(c.id);
     const hasMeasurements = c.measurements && Object.values(c.measurements).some(v => v);
 
     return `
@@ -198,13 +229,9 @@ export function renderCustomersPage(container) {
           </div>
           <div style="display: flex; gap: 6px; align-items: center;">
             ${c.isVip ? '<span class="badge" style="background: #FFF8E1; color: #F57F17;">VIP</span>' : ''}
-            <button class="preview-btn" data-id="${c.id}" title="معاينة سريعة" style="background: var(--bg-color); color: var(--primary-color); border: 1px solid var(--border-color); padding: 6px 10px; border-radius: var(--radius-md); font-size: 13px; cursor: pointer; font-weight: 700; min-height: 30px;">
-              👁️
-            </button>
+            <button class="preview-btn" data-id="${c.id}" title="معاينة سريعة" style="background: var(--bg-color); color: var(--primary-color); border: 1px solid var(--border-color); padding: 6px 10px; border-radius: var(--radius-md); font-size: 13px; cursor: pointer; font-weight: 700; min-height: 30px;">👁️</button>
             ${c.phone ? `
-              <button class="whatsapp-btn" data-phone="${escapeHtml(c.phone)}" data-name="${escapeHtml(c.name)}" style="background: #25D366; color: white; border: none; padding: 6px 10px; border-radius: var(--radius-md); font-size: 13px; cursor: pointer; font-weight: 700; min-height: 30px;">
-                📱
-              </button>
+              <button class="whatsapp-btn" data-phone="${escapeHtml(c.phone)}" data-name="${escapeHtml(c.name)}" style="background: #25D366; color: white; border: none; padding: 6px 10px; border-radius: var(--radius-md); font-size: 13px; cursor: pointer; font-weight: 700; min-height: 30px;">📱</button>
             ` : ''}
           </div>
         </div>
@@ -218,9 +245,9 @@ export function renderCustomersPage(container) {
     `;
   }
 
-  // ============================================================
-  // استخدام العرض التدريجي
-  // ============================================================
+  /* ============================================================
+     العرض التدريجي
+     ============================================================ */
   if (customers.length === 0) {
     const listContainer = document.getElementById('customers-progressive-list');
     if (listContainer) {
@@ -238,72 +265,47 @@ export function renderCustomersPage(container) {
     });
   }
 
-  // ============================================================
-  // ربط الأحداث
-  // ============================================================
+  /* ============================================================
+     ربط أحداث العناصر المُحمّلة
+     ============================================================ */
+  function bindProgressiveEvents() {
+    // زر المعاينة
+    container.querySelectorAll('.preview-btn').forEach(btn => {
+      if (btn.dataset.bound === '1') return;
+      btn.dataset.bound = '1';
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        previewCustomer(btn.dataset.id);
+      }, true);
+    });
 
-  // زر الإضافة
-  const addBtn = container.querySelector('#add-customer-btn');
-  if (addBtn) {
-    addBtn.addEventListener('click', () => openCustomerModal(null));
-  }
+    // زر واتساب
+    container.querySelectorAll('.whatsapp-btn').forEach(btn => {
+      if (btn.dataset.bound === '1') return;
+      btn.dataset.bound = '1';
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const phone = btn.dataset.phone;
+        const name = btn.dataset.name;
+        openWhatsApp(phone, `السلام عليكم ${name} 🌹`);
+      }, true);
+    });
 
-  // البحث
-  const searchInput = container.querySelector('#search-input');
-  if (searchInput) {
-    searchInput.addEventListener('input', (e) => {
-      searchQuery = e.target.value;
-      const pos = e.target.selectionStart;
-      renderCustomersPage(container);
-      const newInput = container.querySelector('#search-input');
-      if (newInput) {
-        newInput.focus();
-        newInput.setSelectionRange(pos, pos);
-      }
+    // النقر على عميل
+    container.querySelectorAll('.customer-item').forEach(item => {
+      if (item.dataset.bound === '1') return;
+      item.dataset.bound = '1';
+      item.addEventListener('click', () => {
+        const customer = db.getCustomer(item.dataset.id);
+        if (customer) openCustomerDetails(customer);
+      });
     });
   }
 
-  // فلترة
-  container.querySelectorAll('.filter-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      filterMode = btn.dataset.filter;
-      renderCustomersPage(container);
-    });
-  });
-
-  // ترتيب
-  container.querySelectorAll('.sort-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      sortMode = btn.dataset.sort;
-      renderCustomersPage(container);
-    });
-  });
-
-  // زر المعاينة
-  container.querySelectorAll('.preview-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      previewCustomer(btn.dataset.id);
-    });
-  });
-
-  // زر واتساب
-  container.querySelectorAll('.whatsapp-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const phone = btn.dataset.phone;
-      const name = btn.dataset.name;
-      openWhatsApp(phone, `السلام عليكم ${name} 🌹`);
-    });
-  });
-
-  // النقر على عميل → تفاصيل
-  container.querySelectorAll('.customer-item').forEach(item => {
-    item.addEventListener('click', () => {
-      const customer = db.getCustomer(item.dataset.id);
-      if (customer) openCustomerDetails(customer);
-    });
-  });
+  setTimeout(bindProgressiveEvents, 100);
+  window.addEventListener('scroll', bindProgressiveEvents, { passive: true });
 
   /* ============================================================
      نموذج إضافة/تعديل عميل
@@ -319,12 +321,17 @@ export function renderCustomersPage(container) {
     const isManualVip = isEdit ? customer.vipManual === true : false;
     const meas = isEdit ? (customer.measurements || {}) : {};
 
-    const measurementsHtml = MEASUREMENT_FIELDS.map(field => `
-      <div class="form-group" style="margin-bottom: 8px;">
-        <label style="font-size: 12px;">${field.icon} ${field.label}</label>
-        <input type="number" id="meas-${field.id}" class="form-control" value="${meas[field.id] || ''}" placeholder="سم" step="0.5" style="min-height: 38px;">
-      </div>
-    `).join('');
+    // ✅ الحقول الديناميكية من الإعدادات
+    const activeFields = getMeasurementFields();
+
+    const measurementsHtml = activeFields.length === 0
+      ? `<p style="text-align:center; color:var(--text-muted); font-size:13px; padding: 8px;">لا توجد حقول مقاسات مفعّلة. أضفها من الإعدادات.</p>`
+      : activeFields.map(field => `
+          <div class="form-group" style="margin-bottom: 8px;">
+            <label style="font-size: 12px;">📏 ${escapeHtml(field.label)}</label>
+            <input type="number" id="meas-${field.id}" class="form-control" value="${meas[field.id] || ''}" placeholder="سم" step="0.5" style="min-height: 38px;">
+          </div>
+        `).join('');
 
     const formHtml = `
       <h3 class="card-title no-border">${title}</h3>
@@ -356,7 +363,7 @@ export function renderCustomersPage(container) {
           </label>
           <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); margin-top: 6px; cursor: pointer;">
             <input type="checkbox" id="customer-vip-manual" ${isManualVip ? 'checked' : ''} style="width: 16px; height: 16px;">
-            <span>تثبيت التصنيف يدوياً</span>
+            <span>تثبيت التصنيف يدوياً (بدون تغيير تلقائي)</span>
           </label>
         </div>
 
@@ -399,10 +406,13 @@ export function renderCustomersPage(container) {
         return;
       }
 
+      // ✅ جمع المقاسات ديناميكياً
       const measurements = {};
-      MEASUREMENT_FIELDS.forEach(field => {
-        const value = document.getElementById(`meas-${field.id}`).value;
-        if (value) measurements[field.id] = parseFloat(value);
+      activeFields.forEach(field => {
+        const input = document.getElementById(`meas-${field.id}`);
+        if (input && input.value) {
+          measurements[field.id] = parseFloat(input.value);
+        }
       });
 
       const customerData = { name, phone, address, note, isVip: vip, vipManual, measurements };
@@ -437,14 +447,16 @@ export function renderCustomersPage(container) {
      تفاصيل العميل
      ============================================================ */
   function openCustomerDetails(customer) {
-    const info = getCustomerPaymentInfo(customer.id, allOrders, allPayments);
+    const info = getInfo(customer.id);
     const customerOrders = allOrders
       .filter(o => o.customerId === customer.id)
       .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
+    // ✅ قراءة المقاسات ديناميكياً
+    const allFields = getAllMeasurementFields();
     const measurementsHtml = (() => {
       const m = customer.measurements || {};
-      const filled = MEASUREMENT_FIELDS.filter(f => m[f.id]);
+      const filled = allFields.filter(f => m[f.id]);
       if (filled.length === 0) {
         return `<p style="text-align:center; color:var(--text-muted); font-size:13px; padding: 8px;">لا توجد مقاسات محفوظة.</p>`;
       }
@@ -452,7 +464,7 @@ export function renderCustomersPage(container) {
         <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
           ${filled.map(f => `
             <div style="background: var(--surface-color); padding: 8px; border-radius: var(--radius-md); font-size: 13px;">
-              <div style="font-size: 11px; color: var(--text-muted);">${f.icon} ${f.label}</div>
+              <div style="font-size: 11px; color: var(--text-muted);">📏 ${escapeHtml(f.label)}</div>
               <div style="font-weight: 700; color: var(--primary-color);">${m[f.id]} سم</div>
             </div>
           `).join('')}
@@ -571,4 +583,53 @@ export function renderCustomersPage(container) {
 
     document.getElementById('close-customer-details').addEventListener('click', closeModal);
   }
+
+  /* ============================================================
+     ربط الأحداث الرئيسية
+     ============================================================ */
+  const addBtn = container.querySelector('#add-customer-btn');
+  if (addBtn) {
+    addBtn.addEventListener('click', () => openCustomerModal(null));
+  }
+
+  const searchInput = container.querySelector('#search-input');
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      searchQuery = e.target.value;
+      const pos = e.target.selectionStart;
+      renderCustomersPage(container);
+      const newInput = container.querySelector('#search-input');
+      if (newInput) {
+        newInput.focus();
+        newInput.setSelectionRange(pos, pos);
+      }
+    });
+  }
+
+  container.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      filterMode = btn.dataset.filter;
+      renderCustomersPage(container);
+    });
+  });
+
+  container.querySelectorAll('.sort-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      sortMode = btn.dataset.sort;
+      renderCustomersPage(container);
+    });
+  });
+
+  /* ============================================================
+     ربط FAB
+     ============================================================ */
+  if (window.__customersQuickListener) {
+    document.removeEventListener('quick-action', window.__customersQuickListener);
+  }
+  window.__customersQuickListener = (e) => {
+    if (e.detail.action === 'new-customer') {
+      setTimeout(() => openCustomerModal(null), 150);
+    }
+  };
+  document.addEventListener('quick-action', window.__customersQuickListener);
 }
