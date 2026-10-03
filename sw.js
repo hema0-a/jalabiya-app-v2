@@ -3,14 +3,13 @@
    (يعمل offline + يخزّن الملفات الثابتة + يحدّث تلقائياً)
    ============================================================ */
 
-const CACHE_VERSION = 'jalabiya-v2-v1.0.0';
+const CACHE_VERSION = 'jalabiya-v2-v2.0.0';
 const CACHE_NAME = `static-${CACHE_VERSION}`;
 
 /* الملفات التي نُخزّنها مسبقاً عند التثبيت */
 const PRECACHE_URLS = [
   './',
   './index.html',
-  './manifest.json',
   // CSS
   './css/main.css',
   './css/themes.css',
@@ -145,11 +144,17 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // الملفات الثابتة (JS/CSS/JSON): Cache First
-  if (url.pathname.match(/\.(js|css|json|png|jpg|jpeg|svg|woff2?|ttf)$/i)) {
-    event.respondWith(cacheFirst(request));
-    return;
-  }
+  // manifest.json → دائماً من الشبكة (Network First)
+if (url.pathname.endsWith('manifest.json') || url.pathname.endsWith('sw.js')) {
+  event.respondWith(networkFirst(request));
+  return;
+}
+
+// الملفات الثابتة (JS/CSS/الصور): Cache First
+if (url.pathname.match(/\.(js|css|png|jpg|jpeg|svg|woff2?|ttf)$/i)) {
+  event.respondWith(cacheFirst(request));
+  return;
+}
 
   // الافتراضي: Network First
   event.respondWith(networkFirst(request));
