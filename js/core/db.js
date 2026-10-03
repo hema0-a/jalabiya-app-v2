@@ -1,6 +1,6 @@
 /* ============================================================
-   db.js - طبقة البيانات الشاملة (V2)
-   (النسخة الكاملة مع المواسم)
+   db.js - طبقة البيانات الشاملة (V2.1)
+   (النسخة الكاملة مع المواسم + Map Cache للعملاء)
    ============================================================ */
 
 import { APP_CONFIG, DEFAULT_DB, DEFAULT_OCCASIONS, getSettings } from './config.js';
@@ -12,6 +12,21 @@ let state = deepClone(DEFAULT_DB);
 let saveTimer = null;
 
 /* ============================================================
+   Map Cache للعملاء — تحسين أداء البحث (O(1) بدل O(n))
+   ============================================================ */
+let customersMapCache = new Map();
+let customersMapDirty = true;
+
+function getCustomersMap() {
+  if (customersMapDirty) {
+    customersMapCache.clear();
+    state.customers.forEach(c => customersMapCache.set(c.id, c));
+    customersMapDirty = false;
+  }
+  return customersMapCache;
+}
+
+/* ============================================================
    تحميل وحفظ قاعدة البيانات
    ============================================================ */
 
@@ -20,6 +35,7 @@ export function load() {
     const saved = storage.loadDB();
     if (saved && typeof saved === 'object') {
       state = mergeWithDefaults(saved);
+      customersMapDirty = true;
       console.log('✅ DB loaded:', {
         customers: state.customers.length,
         orders: state.orders.length,
@@ -32,6 +48,7 @@ export function load() {
       });
     } else {
       state = deepClone(DEFAULT_DB);
+      customersMapDirty = true;
       console.log('📭 DB empty — using defaults');
       save(true);
     }
@@ -44,6 +61,7 @@ export function load() {
   } catch (e) {
     console.error('❌ DB load failed:', e);
     state = deepClone(DEFAULT_DB);
+    customersMapDirty = true;
     return state;
   }
 }
@@ -81,10 +99,10 @@ function mergeWithDefaults(saved) {
    'occasions', 'holidays', 'activityLog', 'trash'].forEach(key => {
     if (!Array.isArray(merged[key])) merged[key] = [];
   });
-  
-  // --- إصلاح دمج الإعدادات (هذا هو السطر المصلح) ---
+
+  // --- إصلاح دمج الإعدادات ---
   merged.settings = getSettings(merged.settings || {});
-  
+
   return merged;
 }
 
@@ -106,13 +124,17 @@ export function flush() { return persist(); }
 export function backup() { return storage.saveBackup(state); }
 export function getState() { return state; }
 export function getStateCopy() { return deepClone(state); }
+
 export function setState(newState) {
   state = { ...deepClone(DEFAULT_DB), ...newState };
+  customersMapDirty = true;
   save(true);
   events.emit(EVENTS.DB_LOADED, state);
 }
+
 export function reset() {
   state = deepClone(DEFAULT_DB);
+  customersMapDirty = true;
   save(true);
   events.emit(EVENTS.DB_LOADED, state);
 }
@@ -125,12 +147,13 @@ export function getCustomers() { return state.customers; }
 
 export function getCustomer(id) {
   if (!id) return null;
-  return state.customers.find(c => c.id === id) || null;
+  return getCustomersMap().get(id) || null;
 }
 
 export function addCustomer(customer) {
   const newCustomer = { ...customer, id: customer.id || uid(), createdAt: Date.now(), updatedAt: Date.now() };
   state.customers.push(newCustomer);
+  customersMapDirty = true;
   save();
   events.emit(EVENTS.CUSTOMER_ADDED, newCustomer);
   return newCustomer;
@@ -149,6 +172,7 @@ export function deleteCustomer(id) {
   const idx = state.customers.findIndex(c => c.id === id);
   if (idx === -1) return false;
   const [customer] = state.customers.splice(idx, 1);
+  customersMapDirty = true;
   state.trash.push({ id: uid(), type: 'customer', data: customer, deletedAt: today() });
   save();
   events.emit(EVENTS.CUSTOMER_DELETED, customer);
@@ -757,7 +781,7 @@ export function deleteGarmentType(id) {
 }
 
 /* ============================================================
-   قسم المواسم والأعياد (Occasions) - جديد
+   قسم المواسم والأعياد (Occasions)
    ============================================================ */
 
 export function getOccasions() { return state.occasions || []; }
