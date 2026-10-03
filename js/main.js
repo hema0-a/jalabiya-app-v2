@@ -1,6 +1,6 @@
 /* ============================================================
    main.js - نقطة الدخول الرئيسية (V2)
-   (النسخة النهائية المُصلحة)
+   (النسخة الكاملة مع المواسم والأعياد)
    ============================================================ */
 
 import { APP_CONFIG } from './core/config.js';
@@ -17,9 +17,9 @@ import { initActivityLogger } from './core/activity-log.js';
 import { cleanOldTrashItems } from './core/trash.js';
 import { showDueOrdersNotification } from './core/notifications.js';
 import { initSearchShortcut } from './ui/universal-search.js';
-import { renderQuickActions } from './ui/quick-actions.js';
 import { initSync, syncNow } from './core/sync.js';
-import { isSignedIn, waitForAuthReady } from './core/cloud-auth.js';
+import { isSignedIn } from './core/cloud-auth.js';
+import { renderQuickActions } from './ui/quick-actions.js';
 
 // استيراد الصفحات - العمليات
 import { renderDashboardPage } from './pages/dashboard.js';
@@ -42,6 +42,9 @@ import { renderReferralsPage } from './pages/referrals.js';
 import { renderCommitmentsPage } from './pages/commitments.js';
 import { renderHouseExpensesPage } from './pages/house-expenses.js';
 import { renderLoansPage } from './pages/loans.js';
+
+// استيراد الصفحات - المواسم
+import { renderOccasionsPage } from './pages/occasions.js';
 
 // استيراد الصفحات - النظام
 import { renderActivityLogPage } from './pages/activity-log.js';
@@ -104,8 +107,6 @@ async function init() {
    ============================================================ */
 function startApp() {
   renderAppLayout();
-   // إضافة زر الإجراءات السريعة
-renderQuickActions();
 
   // ============================================================
   // تسجيل جميع الصفحات في الراوتر
@@ -133,6 +134,9 @@ renderQuickActions();
   router.register('/house-expenses', renderHouseExpensesPage);
   router.register('/loans', renderLoansPage);
 
+  // المواسم
+  router.register('/occasions', renderOccasionsPage);
+
   // النظام
   router.register('/activity-log', renderActivityLogPage);
   router.register('/trash', renderTrashPage);
@@ -150,30 +154,32 @@ renderQuickActions();
   // تفعيل اختصار البحث Ctrl+K
   initSearchShortcut();
 
+  // إضافة زر الإجراءات السريعة
+  renderQuickActions();
+
   // بدء مؤقت القفل التلقائي
   startIdleTimer();
 
-  // إغلاق القائمة الجانبية عند تغيير الصفحة (للجوال)
+  // إغلاق القائمة الجانبية عند تغيير الصفحة
   events.on(EVENTS.PAGE_CHANGED, () => {
     closeSidebar();
   });
 
   console.log('✅ التطبيق جاهز');
 
-  // عرض إشعارات المواعيد بعد ثانية
+  // عرض إشعارات المواعيد
   setTimeout(() => {
     showDueOrdersNotification();
   }, 1000);
 
-  // ✅ إصلاح: تفعيل المزامنة بعد التأكد من جاهزية Firebase
+  // تفعيل المزامنة السحابية
   setupCloudSync();
 }
 
 /* ============================================================
-   ✅ إصلاح: إعداد المزامنة السحابية (بشكل موثوق)
+   إعداد المزامنة السحابية
    ============================================================ */
 function setupCloudSync() {
-  // 1. حالة المستخدم مسجل دخول بالفعل
   if (isSignedIn()) {
     console.log('☁️ المستخدم مسجّل دخول، بدء المزامنة...');
     initSync().then(ready => {
@@ -181,7 +187,6 @@ function setupCloudSync() {
     }).catch(e => console.warn('⚠️ فشل المزامنة:', e));
   }
 
-  // 2. الاستماع لتسجيل الدخول لاحقاً
   events.on('cloud:auth:signin', () => {
     console.log('🔓 تم تسجيل الدخول، بدء المزامنة...');
     initSync().then(ready => {
