@@ -1,0 +1,48 @@
+{
+  "name": "ورشة تفصيل الجلابيب",
+  "short_name": "ورشة الجلابيب",
+  "description": "تطبيق إدارة شاملة لورشة تفصيل الجلابيب",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F6F1E6",
+  "theme_color": "#1F6D57",
+  "lang": "ar",
+  "dir": "rtl",
+  "categories": ["business", "productivity"],
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='40' fill='%231F6D57'/%3E%3Ctext x='96' y='130' font-size='110' text-anchor='middle' fill='white' font-family='Arial'%3E%F0%9F%A7%B5%3C/text%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='100' fill='%231F6D57'/%3E%3Ctext x='256' y='340' font-size='290' text-anchor='middle' fill='white' font-family='Arial'%3E%F0%9F%A7%B5%3C/text%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "الطلبات",
+      "short_name": "الطلبات",
+      "description": "فتح صفحة الطلبات",
+      "url": "./index.html#/orders"
+    },
+    {
+      "name": "العملاء",
+      "short_name": "العملاء",
+      "description": "فتح صفحة العملاء",
+      "url": "./index.html#/customers"
+    },
+    {
+      "name": "الدفعات",
+      "short_name": "الدفعات",
+      "description": "فتح صفحة الدفعات",
+      "url": "./index.html#/payments"
+    }
+  ]
+}
