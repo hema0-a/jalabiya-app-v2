@@ -1,6 +1,6 @@
 /* ============================================================
    customers.js - صفحة إدارة العملاء المتقدمة (V2)
-   (مقاسات + VIP + تفاصيل كاملة + طلبات + دفعات + بحث + تعديل + حذف)
+   (مقاسات + VIP + تفاصيل كاملة + طلبات + دفعات + بحث + واتساب)
    ============================================================ */
 
 import * as db from '../core/db.js';
@@ -10,14 +10,10 @@ import { today, money, formatDate } from '../core/utils.js';
 import { DEFAULT_SETTINGS } from '../core/config.js';
 import * as storage from '../core/storage.js';
 
-// متغيرات حالة الصفحة
 let searchQuery = '';
-let filterMode = 'all'; // all | vip | regular
-let tempLogo = null;
+let filterMode = 'all';
+let sortMode = 'recent'; // recent | spend | name
 
-/* ============================================================
-   قائمة المقاسات القياسية
-   ============================================================ */
 const MEASUREMENT_FIELDS = [
   { id: 'shoulder', label: 'الكتف', icon: '📏' },
   { id: 'chest', label: 'الصدر', icon: '📐' },
@@ -29,18 +25,29 @@ const MEASUREMENT_FIELDS = [
   { id: 'hip', label: 'الأرداف', icon: '📐' }
 ];
 
-/* ============================================================
-   الصفحة الرئيسية
-   ============================================================ */
+/* فتح محادثة واتساب مباشرة */
+function openWhatsApp(phone, message = '') {
+  if (!phone) {
+    toast.error('لا يوجد رقم هاتف محفوظ لهذا العميل');
+    return;
+  }
+  let cleanPhone = String(phone).replace(/\D/g, '');
+  if (cleanPhone.startsWith('0')) cleanPhone = '2' + cleanPhone;
+  
+  const url = message
+    ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`
+    : `https://wa.me/${cleanPhone}`;
+  window.open(url, '_blank');
+}
+
 export function renderCustomersPage(container) {
   const allCustomers = db.getCustomers();
   const settings = storage.loadSettings() || { ...DEFAULT_SETTINGS };
   const vipThreshold = settings.vipThreshold || 3;
 
-  // 1. تحديث تصنيفات VIP التلقائية
+  // تحديث تصنيفات VIP التلقائية
   allCustomers.forEach(c => {
     const orderCount = db.getOrders().filter(o => o.customerId === c.id).length;
-    // إذا لم يكن مصنفاً يدوياً ووصل للحد → اجعله VIP تلقائياً
     if (c.vipManual !== true) {
       const wasVip = c.isVip === true;
       const shouldBeVip = orderCount >= vipThreshold;
@@ -50,13 +57,10 @@ export function renderCustomersPage(container) {
     }
   });
 
-  // 2. تصفية العملاء
-  const customers = allCustomers.filter(c => {
-    // فلترة VIP
+  // تصفية
+  let customers = allCustomers.filter(c => {
     if (filterMode === 'vip' && !c.isVip) return false;
     if (filterMode === 'regular' && c.isVip) return false;
-    
-    // فلترة البحث
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       return (c.name || '').toLowerCase().includes(q) ||
@@ -65,12 +69,21 @@ export function renderCustomersPage(container) {
     return true;
   });
 
-  // 3. إحصائيات
+  // ترتيب
+  customers = customers.sort((a, b) => {
+    if (sortMode === 'name') return (a.name || '').localeCompare(b.name || '');
+    if (sortMode === 'spend') {
+      const aSpent = db.getOrders().filter(o => o.customerId === a.id).reduce((s, o) => s + (o.totalPrice || 0), 0);
+      const bSpent = db.getOrders().filter(o => o.customerId === b.id).reduce((s, o) => s + (o.totalPrice || 0), 0);
+      return bSpent - aSpent;
+    }
+    return (b.createdAt || 0) - (a.createdAt || 0);
+  });
+
   const totalCustomers = allCustomers.length;
   const vipCount = allCustomers.filter(c => c.isVip).length;
   const regularCount = totalCustomers - vipCount;
 
-  // 4. بناء الواجهة
   let html = `
     <div class="card">
       <div class="flex-between mb-2">
@@ -78,7 +91,6 @@ export function renderCustomersPage(container) {
         <button class="btn btn-primary" id="add-customer-btn">+ إضافة عميل</button>
       </div>
 
-      <!-- إحصائيات -->
       <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px;">
         <div class="stat-card" style="padding: 10px 6px;">
           <div class="stat-value" style="font-size: 20px;">${totalCustomers}</div>
@@ -94,20 +106,24 @@ export function renderCustomersPage(container) {
         </div>
       </div>
 
-      <!-- البحث -->
       <div class="form-group" style="margin-bottom: 10px;">
         <input type="text" id="search-input" class="form-control" placeholder="🔍 ابحث بالاسم أو رقم الهاتف..." value="${searchQuery}">
       </div>
 
-      <!-- فلترة -->
       <div class="kanban-toggle">
         <button class="btn ${filterMode === 'all' ? 'btn-primary' : 'btn-outline'} filter-btn" data-filter="all" style="font-size: 12px;">الكل</button>
         <button class="btn ${filterMode === 'vip' ? 'btn-primary' : 'btn-outline'} filter-btn" data-filter="vip" style="font-size: 12px;">👑 VIP</button>
         <button class="btn ${filterMode === 'regular' ? 'btn-primary' : 'btn-outline'} filter-btn" data-filter="regular" style="font-size: 12px;">عادي</button>
       </div>
+
+      <!-- فلتر الترتيب -->
+      <div style="display: flex; gap: 6px; margin-bottom: 12px;">
+        <button class="btn ${sortMode === 'recent' ? 'btn-primary' : 'btn-outline'} sort-btn" data-sort="recent" style="flex:1; font-size: 11px; min-height: 32px;">🕒 الأحدث</button>
+        <button class="btn ${sortMode === 'spend' ? 'btn-primary' : 'btn-outline'} sort-btn" data-sort="spend" style="flex:1; font-size: 11px; min-height: 32px;">💰 الأعلى شراءً</button>
+        <button class="btn ${sortMode === 'name' ? 'btn-primary' : 'btn-outline'} sort-btn" data-sort="name" style="flex:1; font-size: 11px; min-height: 32px;">🔤 أبجدي</button>
+      </div>
   `;
 
-  // 5. عرض القائمة
   if (customers.length === 0) {
     html += `
       <div class="empty-state">
@@ -130,7 +146,14 @@ export function renderCustomersPage(container) {
             <div style="font-weight: bold; font-size: 15px;">
               ${c.isVip ? '👑 ' : ''}${c.name}
             </div>
-            ${c.isVip ? '<span class="badge" style="background: #FFF8E1; color: #F57F17;">VIP</span>' : ''}
+            <div style="display: flex; gap: 6px; align-items: center;">
+              ${c.isVip ? '<span class="badge" style="background: #FFF8E1; color: #F57F17;">VIP</span>' : ''}
+              ${c.phone ? `
+                <button class="whatsapp-btn" data-phone="${c.phone}" data-name="${c.name}" style="background: #25D366; color: white; border: none; padding: 6px 10px; border-radius: var(--radius-md); font-size: 13px; cursor: pointer; font-weight: 700; min-height: 30px;">
+                  📱
+                </button>
+              ` : ''}
+            </div>
           </div>
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; font-size: 12px; color: var(--text-muted);">
             ${c.phone ? `<div>📞 ${c.phone}</div>` : '<div></div>'}
@@ -171,7 +194,6 @@ export function renderCustomersPage(container) {
     const formHtml = `
       <h3 class="card-title no-border">${title}</h3>
       <form id="customer-form">
-        <!-- البيانات الأساسية -->
         <div class="form-group">
           <label>اسم العميل *</label>
           <input type="text" id="customer-name" class="form-control" value="${nameVal}" required>
@@ -189,7 +211,6 @@ export function renderCustomersPage(container) {
           <input type="text" id="customer-note" class="form-control" value="${noteVal}" placeholder="اختياري">
         </div>
 
-        <!-- تصنيف VIP -->
         <div class="form-group">
           <label style="display: flex; align-items: center; justify-content: space-between; padding: 10px; background: var(--bg-color); border-radius: var(--radius-md); cursor: pointer;">
             <span>
@@ -204,7 +225,6 @@ export function renderCustomersPage(container) {
           </label>
         </div>
 
-        <!-- المقاسات -->
         <div style="background: var(--bg-color); padding: 12px; border-radius: var(--radius-md); margin-bottom: 12px;">
           <div class="flex-between" style="margin-bottom: 10px;">
             <strong style="font-size: 14px;">📏 المقاسات (سم)</strong>
@@ -232,7 +252,6 @@ export function renderCustomersPage(container) {
     const form = document.getElementById('customer-form');
     form.addEventListener('submit', (e) => {
       e.preventDefault();
-
       const name = document.getElementById('customer-name').value.trim();
       const phone = document.getElementById('customer-phone').value.trim();
       const address = document.getElementById('customer-address').value.trim();
@@ -245,22 +264,13 @@ export function renderCustomersPage(container) {
         return;
       }
 
-      // جمع المقاسات
       const measurements = {};
       MEASUREMENT_FIELDS.forEach(field => {
         const value = document.getElementById(`meas-${field.id}`).value;
         if (value) measurements[field.id] = parseFloat(value);
       });
 
-      const customerData = {
-        name,
-        phone,
-        address,
-        note,
-        isVip: vip,
-        vipManual: vipManual,
-        measurements
-      };
+      const customerData = { name, phone, address, note, isVip: vip, vipManual, measurements };
 
       if (isEdit) {
         db.updateCustomer(customer.id, customerData);
@@ -289,19 +299,17 @@ export function renderCustomersPage(container) {
   }
 
   // ============================================================
-  // نافذة تفاصيل العميل الكاملة
+  // تفاصيل العميل
   // ============================================================
   function openCustomerDetails(customer) {
     const customerOrders = db.getOrders()
       .filter(o => o.customerId === customer.id)
       .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
-    const allPayments = db.getPayments();
     const totalSpent = customerOrders.reduce((sum, o) => sum + (o.totalPrice || 0), 0);
     const totalPaid = customerOrders.reduce((sum, o) => sum + (o.deposit || 0), 0);
     const remaining = totalSpent - totalPaid;
 
-    // بناء جدول المقاسات
     const measurementsHtml = (() => {
       const m = customer.measurements || {};
       const filled = MEASUREMENT_FIELDS.filter(f => m[f.id]);
@@ -320,23 +328,12 @@ export function renderCustomersPage(container) {
       `;
     })();
 
-    // قائمة الطلبات
     const ordersHtml = customerOrders.length === 0
       ? `<p style="text-align:center; color:var(--text-muted); font-size:13px; padding: 12px;">لا توجد طلبات بعد.</p>`
       : customerOrders.slice(0, 5).map(o => {
           const remainingOrder = (o.totalPrice || 0) - (o.deposit || 0);
-          const statusColors = {
-            pending: '#FFA726',
-            in_progress: '#29B6F6',
-            ready: '#AB47BC',
-            delivered: '#66BB6A'
-          };
-          const statusLabels = {
-            pending: 'قيد الانتظار',
-            in_progress: 'قيد التنفيذ',
-            ready: 'جاهز',
-            delivered: 'تم التسليم'
-          };
+          const statusColors = { pending: '#FFA726', in_progress: '#29B6F6', ready: '#AB47BC', delivered: '#66BB6A' };
+          const statusLabels = { pending: 'قيد الانتظار', in_progress: 'قيد التنفيذ', ready: 'جاهز', delivered: 'تم التسليم' };
           const status = o.status || 'pending';
           return `
             <div style="background: var(--surface-color); padding: 10px; border-radius: var(--radius-md); border-right: 3px solid ${statusColors[status]}; margin-bottom: 6px;">
@@ -364,14 +361,20 @@ export function renderCustomersPage(container) {
         ${customer.isVip ? '<span class="badge" style="background: #FFF8E1; color: #F57F17; margin-top: 6px;">VIP - عميل مميز</span>' : ''}
       </div>
 
-      <!-- معلومات الاتصال -->
       <div style="background: var(--bg-color); padding: 12px; border-radius: var(--radius-md); margin-bottom: 12px; font-size: 13px;">
         ${customer.phone ? `<div style="margin-bottom: 6px;"><strong>📞 الهاتف:</strong> ${customer.phone}</div>` : ''}
         ${customer.address ? `<div style="margin-bottom: 6px;"><strong>📍 العنوان:</strong> ${customer.address}</div>` : ''}
         ${customer.note ? `<div><strong>📝 ملاحظات:</strong> ${customer.note}</div>` : ''}
       </div>
 
-      <!-- إحصائيات مالية -->
+      <!-- أزرار واتساب واتصال -->
+      ${customer.phone ? `
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px;">
+          <button class="btn btn-primary" id="wa-greeting-btn" style="background: #25D366;">💬 واتساب</button>
+          <button class="btn btn-outline" id="wa-reminder-btn" style="color: #25D366; border-color: #25D366;">🔔 تذكير</button>
+        </div>
+      ` : ''}
+
       <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 12px;">
         <div style="text-align: center; padding: 8px; background: var(--bg-color); border-radius: var(--radius-md);">
           <div style="font-size: 16px; font-weight: 800; color: var(--primary-color);">${customerOrders.length}</div>
@@ -387,19 +390,16 @@ export function renderCustomersPage(container) {
         </div>
       </div>
 
-      <!-- المقاسات -->
       <div style="margin-bottom: 12px;">
         <h4 style="font-size: 14px; margin-bottom: 8px; color: var(--primary-dark);">📏 المقاسات:</h4>
         ${measurementsHtml}
       </div>
 
-      <!-- الطلبات -->
       <div style="margin-bottom: 12px;">
         <h4 style="font-size: 14px; margin-bottom: 8px; color: var(--primary-dark);">📋 آخر الطلبات:</h4>
         ${ordersHtml}
       </div>
 
-      <!-- أزرار الإجراءات -->
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
         <button class="btn btn-primary" id="add-order-for-customer">+ طلب جديد</button>
         <button class="btn btn-outline" id="edit-customer-details">✏️ تعديل البيانات</button>
@@ -408,6 +408,23 @@ export function renderCustomersPage(container) {
     `;
 
     openModal(detailsHtml);
+
+    // أزرار واتساب
+    if (customer.phone) {
+      const greetingMsg = `السلام عليكم ${customer.name} 🌹\n\nمن ورشة تفصيل الجلابيب.\nكيف حالك؟ نتشرف بخدمتك في أي وقت.`;
+      
+      document.getElementById('wa-greeting-btn').addEventListener('click', () => {
+        openWhatsApp(customer.phone, greetingMsg);
+      });
+
+      const reminderMsg = remaining > 0
+        ? `السلام عليكم ${customer.name} 🌹\n\nتذكير ودّي بوجود مبلغ متبقي:\n💰 المتبقي: ${money(remaining)} جنيه\n\nنشكرك على تعاملك معنا 🌟`
+        : `السلام عليكم ${customer.name} 🌹\n\nنشكرك على سداد جميع مستحقاتك ✓\nنتشرف بخدمتك دائماً.`;
+
+      document.getElementById('wa-reminder-btn').addEventListener('click', () => {
+        openWhatsApp(customer.phone, reminderMsg);
+      });
+    }
 
     document.getElementById('add-order-for-customer').addEventListener('click', () => {
       closeModal();
@@ -428,14 +445,11 @@ export function renderCustomersPage(container) {
   // ============================================================
   // ربط الأحداث
   // ============================================================
-
-  // زر الإضافة
   const addBtn = container.querySelector('#add-customer-btn');
   if (addBtn) {
     addBtn.addEventListener('click', () => openCustomerModal(null));
   }
 
-  // حقل البحث
   const searchInput = container.querySelector('#search-input');
   if (searchInput) {
     searchInput.addEventListener('input', (e) => {
@@ -450,11 +464,27 @@ export function renderCustomersPage(container) {
     });
   }
 
-  // فلترة
   container.querySelectorAll('.filter-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       filterMode = btn.dataset.filter;
       renderCustomersPage(container);
+    });
+  });
+
+  container.querySelectorAll('.sort-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      sortMode = btn.dataset.sort;
+      renderCustomersPage(container);
+    });
+  });
+
+  // زر واتساب في القائمة
+  container.querySelectorAll('.whatsapp-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const phone = btn.dataset.phone;
+      const name = btn.dataset.name;
+      openWhatsApp(phone, `السلام عليكم ${name} 🌹`);
     });
   });
 
