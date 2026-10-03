@@ -1,20 +1,21 @@
 /* ============================================================
-   orders.js - صفحة الطلبات المتقدمة الشاملة (V2)
-   (يشمل: تعدد أنواع + خصم + رسوم إضافية + متبقي + موعد تلقائي
-    + صورة مرجعية + فاتورة + زر تذكير دفع + وقت شغل + تسليم)
+   orders.js - صفحة الطلبات (V2)
+   (النسخة النهائية الشاملة - مُصلحة بالكامل)
    ============================================================ */
 
 import * as db from '../core/db.js';
 import { toast } from '../ui/toast.js';
 import { openModal, closeModal } from '../ui/modal.js';
-import { today, money, formatDate, daysBetween, uid } from '../core/utils.js';
+import { today, money, formatDate, daysBetween, uid, escapeHtml, formatDuration } from '../core/utils.js';
 import { printInvoice, shareInvoiceWhatsApp } from '../core/invoice.js';
 import { DEFAULT_SETTINGS } from '../core/config.js';
+import * as storage from '../core/storage.js';
 import { previewOrder } from '../ui/quick-preview.js';
 import { groupOrders, getGroupMeasurementsSummary, getGroupStats, getGroupingSettings } from '../core/order-grouping.js';
-import * as storage from '../core/storage.js';
 
-// حالات الطلب
+/* ============================================================
+   الثوابت
+   ============================================================ */
 const ORDER_STATUSES = [
   { id: 'pending', label: 'قيد الانتظار', icon: '⏳' },
   { id: 'in_progress', label: 'قيد التنفيذ', icon: '🧵' },
@@ -22,7 +23,6 @@ const ORDER_STATUSES = [
   { id: 'delivered', label: 'تم التسليم', icon: '📦' }
 ];
 
-// أنواع الرسوم الإضافية
 const EXTRA_FEE_TYPES = [
   { id: 'urgent', label: 'استعجال', icon: '⚡', defaultPercent: 20 },
   { id: 'modification', label: 'تعديلات', icon: '✏️', defaultPercent: 0 },
@@ -31,22 +31,16 @@ const EXTRA_FEE_TYPES = [
   { id: 'other', label: 'أخرى', icon: '📌', defaultPercent: 0 }
 ];
 
+/* ============================================================
+   حالة الصفحة
+   ============================================================ */
 let searchQuery = '';
 let selectedStatus = 'all';
-let viewMode = 'list'; // 'list' | 'kanban' | 'grouping'
+let viewMode = 'list';
 
 /* ============================================================
-   دوال مساعدة
+   دوال مساعدة (على مستوى الملف)
    ============================================================ */
-function formatDuration(ms) {
-  if (!ms || ms < 0) return '0 دقيقة';
-  const totalSeconds = Math.floor(ms / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  if (hours > 0) return `${hours} س ${minutes} د`;
-  if (minutes > 0) return `${minutes} دقيقة`;
-  return `${totalSeconds} ثانية`;
-}
 
 function getOrderTotalWorkTime(order) {
   const sessions = order.workSessions || [];
@@ -84,27 +78,6 @@ function getOrderRemaining(order) {
   return Math.max(0, finalTotal - paid);
 }
 
-/* حساب الإجمالي بعد الخصم والرسوم */
-function calculateOrderTotals(items, discountType, discountValue, extraFees) {
-  const subtotal = items.reduce((s, it) => s + ((it.price || 0) * (it.quantity || 0)), 0);
-  
-  // حساب الخصم
-  let discount = 0;
-  if (discountType === 'percent' && discountValue) discount = (subtotal * discountValue) / 100;
-  else if (discountType === 'fixed' && discountValue) discount = Math.min(discountValue, subtotal);
-  
-  // حساب الرسوم الإضافية
-  let feesTotal = 0;
-  (extraFees || []).forEach(fee => {
-    if (fee.type === 'percent') feesTotal += (subtotal * (fee.value || 0)) / 100;
-    else feesTotal += (fee.value || 0);
-  });
-  
-  const finalTotal = subtotal - discount + feesTotal;
-  return { subtotal, discount, feesTotal, finalTotal };
-}
-
-/* اقتراح موعد تسليم تلقائي */
 function suggestDueDate(newOrderTotal) {
   const settings = storage.loadSettings() || { ...DEFAULT_SETTINGS };
   const limit = settings.dailyOrderLimit || 700;
@@ -112,7 +85,6 @@ function suggestDueDate(newOrderTotal) {
   const orders = db.getOrders();
   const candidate = new Date();
   candidate.setDate(candidate.getDate() + 1);
-  
   for (let i = 0; i < 30; i++) {
     const y = candidate.getFullYear();
     const m = String(candidate.getMonth() + 1).padStart(2, '0');
@@ -127,12 +99,17 @@ function suggestDueDate(newOrderTotal) {
   return null;
 }
 
-/* فتح واتساب */
 function openWhatsApp(phone, message) {
+  if (!phone) { toast.error('لا يوجد رقم هاتف'); return; }
   let cleanPhone = String(phone).replace(/\D/g, '');
   if (cleanPhone.startsWith('0')) cleanPhone = '2' + cleanPhone;
   const url = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
   window.open(url, '_blank');
+}
+
+function customerHasPhone(order, customers) {
+  const cust = customers.find(c => c.id === order.customerId);
+  return cust && cust.phone;
 }
 
 /* ============================================================
@@ -175,6 +152,9 @@ export function renderOrdersPage(container) {
     return daysBetween(o.dueDate, today()) < 0;
   }).length;
 
+  /* ============================================================
+     بناء HTML الصفحة
+     ============================================================ */
   let html = `
     <div class="card">
       <div class="flex-between mb-2">
@@ -192,7 +172,7 @@ export function renderOrdersPage(container) {
           </div>
         </div>
         <div style="background: rgba(255,255,255,0.5); height: 8px; border-radius: var(--radius-full); overflow: hidden; margin-bottom: 6px;">
-          <div style="width: ${limitPercent}%; height: 100%; background: ${isOverLimit ? 'linear-gradient(90deg, #EF5350, #C62828)' : 'linear-gradient(90deg, #66BB6A, #2E7D32)'}; transition: width 0.5s;"></div>
+          <div style="width: ${limitPercent}%; height: 100%; background: ${isOverLimit ? 'linear-gradient(90deg, #EF5350, #C62828)' : 'linear-gradient(90deg, #66BB6A, #2E7D32)'};"></div>
         </div>
         <div style="font-size: 11px; color: ${isOverLimit ? '#B71C1C' : '#1B5E20'};">
           ${isOverLimit ? `تجاوزت الحد بـ ${money(todayTotal - dailyLimit)} جنيه` : `متبقٍ لك ${money(remainingLimit)} جنيه اليوم`}
@@ -221,18 +201,18 @@ export function renderOrdersPage(container) {
 
       ${overdueCount > 0 ? `
         <div style="background: #FFEBEE; border-right: 4px solid #C62828; padding: 10px 12px; border-radius: var(--radius-md); margin-bottom: 12px; font-size: 13px; color: #B71C1C;">
-          🚨 <strong>تنبيه:</strong> لديك <strong>${overdueCount}</strong> طلب متأخر عن موعد التسليم!
+          🚨 <strong>تنبيه:</strong> لديك <strong>${overdueCount}</strong> طلب متأخر!
         </div>
       ` : ''}
 
       <div class="kanban-toggle" style="flex-wrap: wrap;">
-  <button class="btn ${viewMode === 'list' ? 'btn-primary' : 'btn-outline'}" id="view-list-btn">📋 قائمة</button>
-  <button class="btn ${viewMode === 'kanban' ? 'btn-primary' : 'btn-outline'}" id="view-kanban-btn">🎯 كانبان</button>
-  <button class="btn ${viewMode === 'grouping' ? 'btn-primary' : 'btn-outline'}" id="view-grouping-btn" style="font-size: 12px;">🧵 تجميع</button>
-</div>
+        <button class="btn ${viewMode === 'list' ? 'btn-primary' : 'btn-outline'}" id="view-list-btn">📋 قائمة</button>
+        <button class="btn ${viewMode === 'kanban' ? 'btn-primary' : 'btn-outline'}" id="view-kanban-btn">🎯 كانبان</button>
+        <button class="btn ${viewMode === 'grouping' ? 'btn-primary' : 'btn-outline'}" id="view-grouping-btn" style="font-size: 12px;">🧵 تجميع</button>
+      </div>
 
       <div class="form-group" style="margin-bottom: 10px;">
-        <input type="text" id="search-order-input" class="form-control" placeholder="🔍 ابحث باسم العميل أو نوع الجلابية..." value="${searchQuery}">
+        <input type="text" id="search-order-input" class="form-control" placeholder="🔍 ابحث باسم العميل أو نوع الجلابية..." value="${escapeHtml(searchQuery)}">
       </div>
 
       ${viewMode === 'list' ? `
@@ -248,16 +228,19 @@ export function renderOrdersPage(container) {
   `;
 
   if (viewMode === 'list') {
-  html += renderListView(filteredOrders, customers);
-} else if (viewMode === 'kanban') {
-  html += renderKanbanView(allOrders, customers);
-} else if (viewMode === 'grouping') {
-  html += renderGroupingView();
-}
+    html += renderListView(filteredOrders, customers);
+  } else if (viewMode === 'kanban') {
+    html += renderKanbanView(allOrders, customers);
+  } else if (viewMode === 'grouping') {
+    html += renderGroupingView();
+  }
 
   html += `</div>`;
   container.innerHTML = html;
 
+  /* ============================================================
+     عرض القائمة
+     ============================================================ */
   function renderListView(orders, customers) {
     if (orders.length === 0) {
       return `
@@ -284,31 +267,25 @@ export function renderOrdersPage(container) {
 
       result += `
         <div class="order-item" data-id="${o.id}" style="border: 1px solid var(--border-color); ${deadline && deadline.type === 'overdue' ? 'border-right: 4px solid #C62828;' : ''} padding: 12px; border-radius: var(--radius-md); background: var(--bg-color); cursor: pointer;">
-  <div class="flex-between" style="margin-bottom: 6px;">
-    <div style="font-weight:bold; font-size:15px;">
-      👤 ${custName}
-      ${timerActive ? '<span class="badge" style="background: #E1F5FE; color: #0277BD; margin-right: 6px;">⏱️ يعمل</span>' : ''}
-      ${summary.isMulti ? '<span class="badge" style="background: #F3E5F5; color: #6A1B9A; margin-right: 6px;">' + summary.itemsCount + ' أنواع</span>' : ''}
-      ${hasDiscount ? '<span class="badge" style="background: #FFF8E1; color: #F57F17; margin-right: 6px;">💸 خصم</span>' : ''}
-      ${hasExtraFees ? '<span class="badge" style="background: #FFF3E0; color: #E65100; margin-right: 6px;">➕ رسوم</span>' : ''}
-      ${hasImage ? '<span class="badge" style="background: #E3F2FD; color: #1565C0; margin-right: 6px;">📷</span>' : ''}
-    </div>
-    <div style="display: flex; gap: 4px; align-items: center;">
-      <button class="order-preview-btn" data-id="${o.id}" title="معاينة سريعة" style="background: var(--surface-color); color: var(--primary-color); border: 1px solid var(--border-color); padding: 4px 8px; border-radius: var(--radius-md); font-size: 12px; cursor: pointer; font-weight: 700; min-height: 26px;">
-        👁️
-      </button>
-      <span class="status-badge ${o.status || 'pending'}">${status.icon} ${status.label}</span>
-    </div>
-  </div>
-          <div style="font-size:13px; margin-bottom: 6px;">🧵 ${summary.summary}</div>
-          <div style="font-size:11px; color:var(--text-muted); margin-bottom: 4px;">📦 الكمية: ${summary.totalQty}</div>
-          ${deadline ? `
-            <div style="font-size: 11px; font-weight: 700; color: ${deadline.color}; margin-bottom: 4px;">
-              📅 التسليم: ${formatDate(o.dueDate)} — ${deadline.text}
+          <div class="flex-between" style="margin-bottom: 6px;">
+            <div style="font-weight:bold; font-size:15px;">
+              👤 ${escapeHtml(custName)}
+              ${timerActive ? '<span class="badge" style="background: #E1F5FE; color: #0277BD; margin-right: 6px;">⏱️ يعمل</span>' : ''}
+              ${summary.isMulti ? '<span class="badge" style="background: #F3E5F5; color: #6A1B9A; margin-right: 6px;">' + summary.itemsCount + ' أنواع</span>' : ''}
+              ${hasDiscount ? '<span class="badge" style="background: #FFF8E1; color: #F57F17; margin-right: 6px;">💸 خصم</span>' : ''}
+              ${hasExtraFees ? '<span class="badge" style="background: #FFF3E0; color: #E65100; margin-right: 6px;">➕ رسوم</span>' : ''}
+              ${hasImage ? '<span class="badge" style="background: #E3F2FD; color: #1565C0; margin-right: 6px;">📷</span>' : ''}
             </div>
-          ` : ''}
+            <div style="display: flex; gap: 4px; align-items: center;">
+              <button class="order-preview-btn" data-id="${o.id}" title="معاينة" style="background: var(--surface-color); color: var(--primary-color); border: 1px solid var(--border-color); padding: 4px 8px; border-radius: var(--radius-md); font-size: 12px; cursor: pointer; min-height: 26px;">👁️</button>
+              <span class="status-badge ${o.status || 'pending'}">${status.icon} ${status.label}</span>
+            </div>
+          </div>
+          <div style="font-size:13px; margin-bottom: 6px;">🧵 ${escapeHtml(summary.summary)}</div>
+          <div style="font-size:11px; color:var(--text-muted); margin-bottom: 4px;">📦 الكمية: ${summary.totalQty}</div>
+          ${deadline ? `<div style="font-size: 11px; font-weight: 700; color: ${deadline.color}; margin-bottom: 4px;">📅 التسليم: ${formatDate(o.dueDate)} — ${deadline.text}</div>` : ''}
           <div style="font-size:12px; color:var(--text-muted);">
-            💰 الإجمالي: ${money(o.totalPrice)}${hasDiscount || hasExtraFees ? ` <span style="font-size: 10px;">(صافي)</span>` : ''} | المدفوع: ${money(o.deposit)} | المتبقي: <span style="color:${remaining > 0 ? '#dc3545' : '#2E7D32'}; font-weight: bold;">${money(remaining)}</span>
+            💰 الإجمالي: ${money(o.totalPrice)} | المدفوع: ${money(o.deposit)} | المتبقي: <span style="color:${remaining > 0 ? '#dc3545' : '#2E7D32'}; font-weight: bold;">${money(remaining)}</span>
           </div>
           ${totalTime > 0 ? `<div style="font-size: 11px; color: #6A1B9A; margin-top: 4px;">⏱️ وقت الشغل: ${formatDuration(totalTime)}</div>` : ''}
         </div>
@@ -317,139 +294,14 @@ export function renderOrdersPage(container) {
     result += `</div>`;
     return result;
   }
-/* ============================================================
-   عرض التجميع (Grouping View)
-   ============================================================ */
-function renderGroupingView() {
-  const settings = getGroupingSettings();
-  
-  // إذا كان التجميع معطّلاً
-  if (!settings.enabled) {
-    return `
-      <div class="card" style="text-align: center; padding: 24px; background: #FFF3E0; border: none;">
-        <div style="font-size: 40px; margin-bottom: 8px;">🧵</div>
-        <h3 style="font-size: 16px; margin-bottom: 8px;">تجميع القياسات غير مفعّل</h3>
-        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
-          لتفعيل هذه الميزة، اذهب إلى الإعدادات وفعّل "تجميع الطلبات المتشابهة".
-        </p>
-        <a href="#/settings" class="btn btn-primary" style="text-decoration: none;">⚙️ فتح الإعدادات</a>
-      </div>
-    `;
-  }
-  
-  const result = groupOrders();
-  
-  // إذا لا توجد مجموعات
-  if (result.totalGroups === 0) {
-    return `
-      <div class="empty-state">
-        <div class="empty-state-icon">🧵</div>
-        <p>لا توجد طلبات قابلة للتجميع حالياً.</p>
-        <p style="font-size: 12px; color: var(--text-muted); margin-top: 8px;">
-          السبب: القياسات غير متقاربة أو لا توجد طلبات نشطة بقياسات محفوظة.
-        </p>
-      </div>
-    `;
-  }
-  
-  // عرض المجموعات
-  let html = `
-    <div style="background: linear-gradient(135deg, var(--primary-color), var(--primary-dark)); color: white; padding: 12px; border-radius: var(--radius-md); margin-bottom: 16px;">
-      <div class="flex-between">
-        <div>
-          <div style="font-size: 12px; opacity: 0.85;">🧵 مجموعات قابلة للتجميع</div>
-          <div style="font-size: 22px; font-weight: 800; margin-top: 2px;">${result.totalGroups} مجموعة</div>
-        </div>
-        <div style="text-align: left;">
-          <div style="font-size: 12px; opacity: 0.85;">إجمالي الطلبات</div>
-          <div style="font-size: 22px; font-weight: 800; margin-top: 2px;">${result.totalGroupedOrders}</div>
-        </div>
-      </div>
-      <div style="font-size: 11px; opacity: 0.8; margin-top: 6px;">
-        📏 نسبة التقارب: ${settings.tolerance} سم
-      </div>
-    </div>
-  `;
-  
-  result.groups.forEach((group, idx) => {
-    const summary = getGroupMeasurementsSummary(group);
-    const stats = getGroupStats(group);
-    
-    // عرض نطاق القياسات
-    let measHtml = '';
-    Object.keys(summary).forEach(fieldId => {
-      const m = summary[fieldId];
-      measHtml += `
-        <div style="display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; border-bottom: 1px dashed var(--border-color);">
-          <span style="color: var(--text-muted);">${m.label}:</span>
-          <span style="font-weight: 600;">
-            ${m.min} - ${m.max} سم
-            ${m.range === 0 ? '<span style="color: #2E7D32; font-size: 10px;">(متطابق)</span>' : ''}
-          </span>
-        </div>
-      `;
-    });
-    
-    // عرض الطلبات في المجموعة
-    const itemsHtml = group.items.map(item => {
-      const statusColors = { pending: '#FFA726', in_progress: '#29B6F6', ready: '#AB47BC', delivered: '#66BB6A' };
-      const status = item.order.status || 'pending';
-      const orderSummary = getOrderSummary(item.order);
-      return `
-        <div class="group-order-item" data-id="${item.order.id}" style="display: flex; align-items: center; gap: 8px; padding: 8px; background: var(--surface-color); border-radius: var(--radius-md); border-right: 3px solid ${statusColors[status]}; cursor: pointer; margin-bottom: 4px;">
-          <span style="font-size: 16px;">👤</span>
-          <div style="flex: 1; min-width: 0;">
-            <div style="font-weight: 600; font-size: 13px;">${item.customer ? item.customer.name : 'عميل محذوف'}</div>
-            <div style="font-size: 11px; color: var(--text-muted);">${orderSummary.summary.length > 25 ? orderSummary.summary.slice(0, 25) + '...' : orderSummary.summary}</div>
-          </div>
-          <span style="font-size: 12px; font-weight: 700; color: var(--primary-color);">${money(item.order.totalPrice)} ج</span>
-        </div>
-      `;
-    }).join('');
-    
-    html += `
-      <div class="card" style="margin-bottom: 12px; border-right: 4px solid var(--accent-color);">
-        <div class="flex-between" style="margin-bottom: 10px;">
-          <div style="display: flex; align-items: center; gap: 6px;">
-            <span style="font-size: 20px;">🧵</span>
-            <div>
-              <div style="font-weight: 800; font-size: 14px;">مجموعة ${idx + 1} — ${group.items.length} طلبات</div>
-              <div style="font-size: 11px; color: var(--text-muted);">${group.garmentType || 'نوع عام'}</div>
-            </div>
-          </div>
-          <div style="text-align: left; font-size: 11px;">
-            <div style="color: var(--text-muted);">الكمية الكلية</div>
-            <div style="font-weight: 800; color: var(--accent-color); font-size: 14px;">${stats.totalQuantity} قطعة</div>
-          </div>
-        </div>
-        
-        <div style="background: var(--bg-color); padding: 8px 12px; border-radius: var(--radius-md); margin-bottom: 10px;">
-          <div style="font-size: 12px; font-weight: 700; color: var(--primary-dark); margin-bottom: 6px;">📏 نطاق القياسات:</div>
-          ${measHtml || '<div style="font-size: 12px; color: var(--text-muted);">لا توجد قياسات مفصّلة</div>'}
-        </div>
-        
-        <div style="margin-bottom: 10px;">
-          <div style="font-size: 12px; font-weight: 700; color: var(--primary-dark); margin-bottom: 6px;">📋 الطلبات في المجموعة:</div>
-          ${itemsHtml}
-        </div>
-        
-        <div style="display: flex; justify-content: space-between; padding-top: 8px; border-top: 1px solid var(--border-color); font-size: 12px;">
-          <span style="color: var(--text-muted);">💰 إجمالي القيمة:</span>
-          <strong style="color: var(--primary-color);">${money(stats.totalValue)} جنيه</strong>
-        </div>
-      </div>
-    `;
-  });
-  
-  return html;
-}
 
+  /* ============================================================
+     عرض كانبان
+     ============================================================ */
   function renderKanbanView(orders, customers) {
     let result = `<div class="kanban-board">`;
-
     ORDER_STATUSES.forEach(status => {
       const statusOrders = orders.filter(o => (o.status || 'pending') === status.id);
-
       result += `
         <div class="kanban-column" data-status="${status.id}">
           <div class="kanban-column-header">
@@ -458,7 +310,6 @@ function renderGroupingView() {
           </div>
           <div class="kanban-column-body">
       `;
-
       if (statusOrders.length === 0) {
         result += `<div class="kanban-empty">لا توجد طلبات</div>`;
       } else {
@@ -469,39 +320,116 @@ function renderGroupingView() {
           const timerActive = isOrderTimerActive(o);
           const deadline = getDeadlineInfo(o);
           const summary = getOrderSummary(o);
-
           result += `
             <div class="kanban-card" data-id="${o.id}" data-status="${o.status || 'pending'}">
-              <div class="kanban-card-title">
-                <span>👤 ${custName}</span>
-                ${timerActive ? '<span style="font-size: 14px;">⏱️</span>' : ''}
-              </div>
+              <div class="kanban-card-title"><span>👤 ${escapeHtml(custName)}</span>${timerActive ? '<span style="font-size:14px;">⏱️</span>' : ''}</div>
               <div class="kanban-card-info">
-                <div class="kanban-card-info-row">
-                  <span>🧵 ${summary.summary.length > 20 ? summary.summary.slice(0, 20) + '...' : summary.summary}</span>
-                  <span>×${summary.totalQty}</span>
-                </div>
-                <div class="kanban-card-info-row">
-                  <span>الإجمالي:</span>
-                  <span class="kanban-card-price">${money(o.totalPrice)}</span>
-                </div>
-                <div class="kanban-card-info-row">
-                  <span>المتبقي:</span>
-                  <span class="kanban-card-remaining ${remaining === 0 ? 'paid' : ''}">${money(remaining)}</span>
-                </div>
-                ${deadline ? `<div style="font-size: 10px; font-weight: 700; color: ${deadline.color}; margin-top: 4px;">📅 ${deadline.text}</div>` : ''}
+                <div class="kanban-card-info-row"><span>🧵 ${escapeHtml(summary.summary.length > 20 ? summary.summary.slice(0, 20) + '...' : summary.summary)}</span><span>×${summary.totalQty}</span></div>
+                <div class="kanban-card-info-row"><span>الإجمالي:</span><span class="kanban-card-price">${money(o.totalPrice)}</span></div>
+                <div class="kanban-card-info-row"><span>المتبقي:</span><span class="kanban-card-remaining ${remaining === 0 ? 'paid' : ''}">${money(remaining)}</span></div>
+                ${deadline ? `<div style="font-size:10px; font-weight:700; color:${deadline.color}; margin-top:4px;">📅 ${deadline.text}</div>` : ''}
               </div>
               <div class="kanban-card-date">📅 ${formatDate(o.date)}</div>
             </div>
           `;
         });
       }
-
       result += `</div></div>`;
     });
-
     result += `</div>`;
     return result;
+  }
+
+  /* ============================================================
+     عرض التجميع
+     ============================================================ */
+  function renderGroupingView() {
+    const settings = getGroupingSettings();
+    if (!settings.enabled) {
+      return `
+        <div class="card" style="text-align: center; padding: 24px; background: #FFF3E0; border: none;">
+          <div style="font-size: 40px; margin-bottom: 8px;">🧵</div>
+          <h3 style="font-size: 16px; margin-bottom: 8px;">تجميع القياسات غير مفعّل</h3>
+          <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">لتفعيل هذه الميزة، اذهب إلى الإعدادات وفعّل "تجميع الطلبات المتشابهة".</p>
+          <a href="#/settings" class="btn btn-primary" style="text-decoration: none;">⚙️ فتح الإعدادات</a>
+        </div>
+      `;
+    }
+    const result = groupOrders();
+    if (result.totalGroups === 0) {
+      return `
+        <div class="empty-state">
+          <div class="empty-state-icon">🧵</div>
+          <p>لا توجد طلبات قابلة للتجميع حالياً.</p>
+          <p style="font-size: 12px; color: var(--text-muted); margin-top: 8px;">السبب: القياسات غير متقاربة أو لا توجد طلبات نشطة.</p>
+        </div>
+      `;
+    }
+    let html = `
+      <div style="background: linear-gradient(135deg, var(--primary-color), var(--primary-dark)); color: white; padding: 12px; border-radius: var(--radius-md); margin-bottom: 16px;">
+        <div class="flex-between">
+          <div><div style="font-size: 12px; opacity: 0.85;">🧵 مجموعات قابلة للتجميع</div><div style="font-size: 22px; font-weight: 800; margin-top: 2px;">${result.totalGroups} مجموعة</div></div>
+          <div style="text-align: left;"><div style="font-size: 12px; opacity: 0.85;">إجمالي الطلبات</div><div style="font-size: 22px; font-weight: 800; margin-top: 2px;">${result.totalGroupedOrders}</div></div>
+        </div>
+        <div style="font-size: 11px; opacity: 0.8; margin-top: 6px;">📏 نسبة التقارب: ${settings.tolerance} سم</div>
+      </div>
+    `;
+    result.groups.forEach((group, idx) => {
+      const summary = getGroupMeasurementsSummary(group);
+      const stats = getGroupStats(group);
+      let measHtml = '';
+      Object.keys(summary).forEach(fieldId => {
+        const m = summary[fieldId];
+        measHtml += `
+          <div style="display:flex; justify-content:space-between; padding:4px 0; font-size:12px; border-bottom:1px dashed var(--border-color);">
+            <span style="color:var(--text-muted);">${m.label}:</span>
+            <span style="font-weight:600;">${m.min} - ${m.max} سم ${m.range === 0 ? '<span style="color:#2E7D32;font-size:10px;">(متطابق)</span>' : ''}</span>
+          </div>
+        `;
+      });
+      const itemsHtml = group.items.map(item => {
+        const statusColors = { pending: '#FFA726', in_progress: '#29B6F6', ready: '#AB47BC', delivered: '#66BB6A' };
+        const status = item.order.status || 'pending';
+        const orderSummary = getOrderSummary(item.order);
+        return `
+          <div class="group-order-item" data-id="${item.order.id}" style="display:flex; align-items:center; gap:8px; padding:8px; background:var(--surface-color); border-radius:var(--radius-md); border-right:3px solid ${statusColors[status]}; cursor:pointer; margin-bottom:4px;">
+            <span style="font-size:16px;">👤</span>
+            <div style="flex:1; min-width:0;">
+              <div style="font-weight:600; font-size:13px;">${escapeHtml(item.customer ? item.customer.name : 'عميل محذوف')}</div>
+              <div style="font-size:11px; color:var(--text-muted);">${escapeHtml(orderSummary.summary.length > 25 ? orderSummary.summary.slice(0, 25) + '...' : orderSummary.summary)}</div>
+            </div>
+            <span style="font-size:12px; font-weight:700; color:var(--primary-color);">${money(item.order.totalPrice)} ج</span>
+          </div>
+        `;
+      }).join('');
+      html += `
+        <div class="card" style="margin-bottom:12px; border-right:4px solid var(--accent-color);">
+          <div class="flex-between" style="margin-bottom:10px;">
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span style="font-size:20px;">🧵</span>
+              <div><div style="font-weight:800; font-size:14px;">مجموعة ${idx + 1} — ${group.items.length} طلبات</div><div style="font-size:11px; color:var(--text-muted);">${escapeHtml(group.garmentType || 'نوع عام')}</div></div>
+            </div>
+            <div style="text-align:left; font-size:11px;">
+              <div style="color:var(--text-muted);">الكمية الكلية</div>
+              <div style="font-weight:800; color:var(--accent-color); font-size:14px;">${stats.totalQuantity} قطعة</div>
+            </div>
+          </div>
+          <div style="background:var(--bg-color); padding:8px 12px; border-radius:var(--radius-md); margin-bottom:10px;">
+            <div style="font-size:12px; font-weight:700; color:var(--primary-dark); margin-bottom:6px;">📏 نطاق القياسات:</div>
+            ${measHtml || '<div style="font-size:12px; color:var(--text-muted);">لا توجد قياسات مفصّلة</div>'}
+          </div>
+          <div style="margin-bottom:10px;">
+            <div style="font-size:12px; font-weight:700; color:var(--primary-dark); margin-bottom:6px;">📋 الطلبات في المجموعة:</div>
+            ${itemsHtml}
+          </div>
+          <div style="display:flex; justify-content:space-between; padding-top:8px; border-top:1px solid var(--border-color); font-size:12px;">
+            <span style="color:var(--text-muted);">💰 إجمالي القيمة:</span>
+            <strong style="color:var(--primary-color);">${money(stats.totalValue)} جنيه</strong>
+          </div>
+        </div>
+      `;
+    });
+    return html;
   }
 
   /* ============================================================
@@ -521,14 +449,10 @@ function renderGroupingView() {
     const hasSignature = isEdit && order.signature;
     const garmentTypes = db.getGarmentTypes();
 
-    // الخصم
     let discountType = isEdit ? (order.discountType || 'none') : 'none';
     let discountValue = isEdit ? (order.discountValue || 0) : 0;
-
-    // الرسوم الإضافية
     let extraFees = isEdit && Array.isArray(order.extraFees) ? JSON.parse(JSON.stringify(order.extraFees)) : [];
 
-    // العناصر
     let items = [];
     if (isEdit && order.items && Array.isArray(order.items) && order.items.length > 0) {
       items = JSON.parse(JSON.stringify(order.items));
@@ -548,7 +472,7 @@ function renderGroupingView() {
 
     const customerOptions = customers.map(c => {
       const selected = (isEdit && c.id === order.customerId) ? 'selected' : '';
-      return `<option value="${c.id}" ${selected}>${c.name}</option>`;
+      return `<option value="${c.id}" ${selected}>${escapeHtml(c.name)}</option>`;
     }).join('');
 
     const statusOptions = ORDER_STATUSES.map(s => `
@@ -583,7 +507,6 @@ function renderGroupingView() {
           </select>
         </div>
 
-        <!-- أنواع الجلابيات -->
         <div style="background: var(--bg-color); padding: 12px; border-radius: var(--radius-md); margin-bottom: 12px;">
           <div class="flex-between" style="margin-bottom: 10px;">
             <h4 style="font-size: 14px; margin: 0; color: var(--primary-dark);">🧵 أنواع الجلابيات</h4>
@@ -592,7 +515,6 @@ function renderGroupingView() {
           <div id="order-items-container" style="display: flex; flex-direction: column; gap: 10px;"></div>
         </div>
 
-        <!-- الصورة المرجعية -->
         <div class="form-group">
           <label style="display: flex; align-items: center; justify-content: space-between;">
             <span>📷 صورة مرجعية (اختياري)</span>
@@ -606,7 +528,6 @@ function renderGroupingView() {
           </button>
         </div>
 
-        <!-- الخصم -->
         <div class="form-group">
           <label>💸 الخصم</label>
           <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 8px;">
@@ -619,9 +540,6 @@ function renderGroupingView() {
           ` : ''}
         </div>
 
-        <!-- ============================================================
-             الرسوم الإضافية (جديد)
-             ============================================================ -->
         <div class="form-group">
           <div class="flex-between" style="margin-bottom: 8px;">
             <label style="margin: 0;">➕ الرسوم الإضافية</label>
@@ -638,7 +556,6 @@ function renderGroupingView() {
           <input type="number" id="order-deposit" class="form-control" value="${isEdit ? (order.deposit || 0) : 0}">
         </div>
 
-        <!-- ملخص الحساب الحي -->
         <div style="background: linear-gradient(135deg, var(--primary-color), var(--primary-dark)); border-radius: var(--radius-md); padding: 12px; margin-bottom: 12px; color: white;">
           <div class="flex-between" style="padding: 4px 0; font-size: 13px;">
             <span style="opacity: 0.85;">المجموع الفرعي:</span>
@@ -666,7 +583,6 @@ function renderGroupingView() {
           </div>
         </div>
 
-        <!-- المواعيد -->
         <div style="background: var(--bg-color); padding: 12px; border-radius: var(--radius-md); margin-bottom: 12px;">
           <h4 style="font-size: 13px; margin-bottom: 10px; color: var(--primary-dark);">📅 المواعيد</h4>
           <div class="form-group" style="margin-bottom: 10px;">
@@ -703,7 +619,7 @@ function renderGroupingView() {
             <button type="button" class="btn btn-outline" id="print-invoice-btn">🖨️ طباعة</button>
             <button type="button" class="btn" id="share-invoice-btn" style="background: #25D366; color: white;">📱 واتساب</button>
           </div>
-          ${getOrderRemaining(order) > 0 && customer_hasPhone(order) ? `
+          ${getOrderRemaining(order) > 0 && customerHasPhone(order, customers) ? `
             <button type="button" class="btn btn-full" id="payment-reminder-btn" style="background: #FFF3E0; color: #E65100; border: 2px solid #E65100; margin-bottom: 8px; font-weight: 700;">
               🔔 إرسال تذكير بالدفع (${money(getOrderRemaining(order))} ج)
             </button>
@@ -721,7 +637,7 @@ function renderGroupingView() {
           </div>
           <div>
             <button type="button" class="btn btn-outline" id="cancel-order-btn">إلغاء</button>
-            <button type="submit" class="btn btn-primary">${isEdit ? 'حفظ' : 'حفظ'}</button>
+            <button type="submit" class="btn btn-primary">حفظ</button>
           </div>
         </div>
       </form>
@@ -729,15 +645,7 @@ function renderGroupingView() {
 
     openModal(formHtml);
 
-    // دالة مساعدة للتحقق من هاتف العميل
-    function customer_hasPhone(o) {
-      const cust = customers.find(c => c.id === o.customerId);
-      return cust && cust.phone;
-    }
-
-    /* ============================================================
-       إدارة العناصر
-       ============================================================ */
+    /* ===== إدارة العناصر ===== */
     const itemsContainer = document.getElementById('order-items-container');
 
     function calculateDiscount(subtotal) {
@@ -763,21 +671,28 @@ function renderGroupingView() {
       const deposit = parseFloat(document.getElementById('order-deposit').value) || 0;
       const remaining = Math.max(0, finalTotal - deposit);
 
-      document.getElementById('subtotal-display').textContent = money(subtotal) + ' ج';
-      document.getElementById('discount-display').textContent = discount > 0 ? '- ' + money(discount) + ' ج' : '0';
-      document.getElementById('extrafees-display').textContent = extraFeesTotal > 0 ? '+ ' + money(extraFeesTotal) + ' ج' : '0';
-      document.getElementById('final-total-display').textContent = money(finalTotal) + ' ج';
-      document.getElementById('paid-display').textContent = money(deposit) + ' ج';
-      document.getElementById('remaining-display').textContent = money(remaining) + ' ج';
+      const subtotalEl = document.getElementById('subtotal-display');
+      if (subtotalEl) subtotalEl.textContent = money(subtotal) + ' ج';
+      const discountEl = document.getElementById('discount-display');
+      if (discountEl) discountEl.textContent = discount > 0 ? '- ' + money(discount) + ' ج' : '0';
+      const extraEl = document.getElementById('extrafees-display');
+      if (extraEl) extraEl.textContent = extraFeesTotal > 0 ? '+ ' + money(extraFeesTotal) + ' ج' : '0';
+      const finalEl = document.getElementById('final-total-display');
+      if (finalEl) finalEl.textContent = money(finalTotal) + ' ج';
+      const paidEl = document.getElementById('paid-display');
+      if (paidEl) paidEl.textContent = money(deposit) + ' ج';
+      const remainEl = document.getElementById('remaining-display');
+      if (remainEl) remainEl.textContent = money(remaining) + ' ج';
 
-      // تحديث إجمالي الرسوم
       const feeTotalDiv = document.getElementById('extra-fees-total');
       const feeTotalValue = document.getElementById('extra-fees-total-value');
-      if (extraFees.length > 0) {
-        feeTotalDiv.style.display = 'block';
-        feeTotalValue.textContent = money(extraFeesTotal);
-      } else {
-        feeTotalDiv.style.display = 'none';
+      if (feeTotalDiv) {
+        if (extraFees.length > 0) {
+          feeTotalDiv.style.display = 'block';
+          feeTotalValue.textContent = money(extraFeesTotal);
+        } else {
+          feeTotalDiv.style.display = 'none';
+        }
       }
 
       return { subtotal, discount, extraFeesTotal, finalTotal, deposit, remaining };
@@ -785,8 +700,8 @@ function renderGroupingView() {
 
     function renderItems() {
       itemsContainer.innerHTML = '';
-      const garmentTypes = db.getGarmentTypes();
-      
+      const garmentTypesList = db.getGarmentTypes();
+
       items.forEach((item, idx) => {
         const itemDiv = document.createElement('div');
         itemDiv.style.cssText = 'border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 10px; background: var(--surface-color);';
@@ -795,21 +710,19 @@ function renderGroupingView() {
             <strong style="font-size: 13px;">عنصر ${idx + 1}</strong>
             ${items.length > 1 ? `<button type="button" class="btn btn-danger remove-item-btn" data-idx="${idx}" style="font-size: 11px; padding: 2px 8px; min-height: 26px;">✕</button>` : ''}
           </div>
-          
           <div class="form-group" style="margin-bottom: 8px;">
             <label style="font-size: 11px;">النوع *</label>
-            ${garmentTypes.length > 0 ? `
+            ${garmentTypesList.length > 0 ? `
               <select class="form-control item-type-select" data-idx="${idx}" style="min-height: 38px; margin-bottom: 6px;">
                 <option value="">-- اختر نوعاً محفوظاً --</option>
-                ${garmentTypes.map(t => {
+                ${garmentTypesList.map(t => {
                   const selected = (item.typeId === t.id) ? 'selected' : '';
-                  return `<option value="${t.id}" data-name="${t.name}" data-price="${t.price}" ${selected}>${t.name} - ${t.price} ج</option>`;
+                  return `<option value="${t.id}" data-name="${escapeHtml(t.name)}" data-price="${t.price}" ${selected}>${escapeHtml(t.name)} - ${t.price} ج</option>`;
                 }).join('')}
               </select>
             ` : ''}
-            <input type="text" class="form-control item-name" data-idx="${idx}" placeholder="اسم الجلابية" value="${item.name || ''}" style="min-height: 38px;">
+            <input type="text" class="form-control item-name" data-idx="${idx}" placeholder="اسم الجلابية" value="${escapeHtml(item.name || '')}" style="min-height: 38px;">
           </div>
-          
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
             <div class="form-group" style="margin: 0;">
               <label style="font-size: 11px;">سعر الوحدة</label>
@@ -820,7 +733,6 @@ function renderGroupingView() {
               <input type="number" class="form-control item-qty" data-idx="${idx}" value="${item.quantity || 1}" min="1" style="min-height: 38px;">
             </div>
           </div>
-          
           <div style="text-align: left; margin-top: 8px; font-size: 12px; color: var(--accent-color); font-weight: 700;">
             الإجمالي: <span class="item-total-display">${money((item.price || 0) * (item.quantity || 1))}</span> ج
           </div>
@@ -885,14 +797,11 @@ function renderGroupingView() {
 
     renderItems();
 
-    /* ============================================================
-       إدارة الرسوم الإضافية (جديد)
-       ============================================================ */
+    /* ===== الرسوم الإضافية ===== */
     const extraFeesContainer = document.getElementById('extra-fees-container');
 
     function renderExtraFees() {
       extraFeesContainer.innerHTML = '';
-      
       if (extraFees.length === 0) {
         extraFeesContainer.innerHTML = `<p style="text-align: center; font-size: 12px; color: var(--text-muted); padding: 6px;">لا توجد رسوم إضافية</p>`;
         updateSummary();
@@ -902,7 +811,7 @@ function renderGroupingView() {
       extraFees.forEach((fee, idx) => {
         const feeDiv = document.createElement('div');
         feeDiv.style.cssText = 'border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 8px; background: var(--surface-color);';
-        
+
         const typeOptions = EXTRA_FEE_TYPES.map(t => {
           const selected = (fee.feeType === t.id) ? 'selected' : '';
           return `<option value="${t.id}" ${selected}>${t.icon} ${t.label}</option>`;
@@ -916,9 +825,7 @@ function renderGroupingView() {
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
             <div>
               <label style="font-size: 10px; color: var(--text-muted);">النوع</label>
-              <select class="form-control fee-type-select" data-idx="${idx}" style="min-height: 34px; font-size: 12px;">
-                ${typeOptions}
-              </select>
+              <select class="form-control fee-type-select" data-idx="${idx}" style="min-height: 34px; font-size: 12px;">${typeOptions}</select>
             </div>
             <div>
               <label style="font-size: 10px; color: var(--text-muted);">القيمة</label>
@@ -935,7 +842,6 @@ function renderGroupingView() {
         extraFeesContainer.appendChild(feeDiv);
       });
 
-      // ربط الأحداث
       extraFeesContainer.querySelectorAll('.remove-fee-btn').forEach(btn => {
         btn.addEventListener('click', () => {
           extraFees.splice(parseInt(btn.dataset.idx), 1);
@@ -947,7 +853,6 @@ function renderGroupingView() {
         sel.addEventListener('change', (e) => {
           const idx = parseInt(sel.dataset.idx);
           extraFees[idx].feeType = e.target.value;
-          // تحديث النسبة الافتراضية
           const typeInfo = EXTRA_FEE_TYPES.find(t => t.id === e.target.value);
           if (typeInfo && typeInfo.defaultPercent > 0 && extraFees[idx].value === 0) {
             extraFees[idx].value = typeInfo.defaultPercent;
@@ -981,10 +886,8 @@ function renderGroupingView() {
 
     renderExtraFees();
 
-    /* ============================================================
-       الخصم
-       ============================================================ */
-    function renderDiscountUI() {
+    /* ===== الخصم ===== */
+    function bindDiscountUI() {
       document.querySelectorAll('.discount-type-btn').forEach(btn => {
         btn.addEventListener('click', () => {
           discountType = btn.dataset.type;
@@ -1031,13 +934,11 @@ function renderGroupingView() {
         });
       }
     }
-    renderDiscountUI();
+    bindDiscountUI();
 
     document.getElementById('order-deposit').addEventListener('input', updateSummary);
 
-    /* ============================================================
-       الصورة المرجعية
-       ============================================================ */
+    /* ===== الصورة المرجعية ===== */
     const portfolio = db.getPortfolio();
 
     document.getElementById('pick-from-portfolio-btn').addEventListener('click', () => {
@@ -1052,7 +953,7 @@ function renderGroupingView() {
           ${portfolio.map(p => `
             <div class="portfolio-pick-item" data-id="${p.id}" style="border: 2px solid var(--border-color); border-radius: var(--radius-md); overflow: hidden; cursor: pointer;">
               <img src="${p.image}" style="width: 100%; height: 100px; object-fit: cover;">
-              <div style="padding: 6px; font-size: 11px; text-align: center;">${p.title}</div>
+              <div style="padding: 6px; font-size: 11px; text-align: center;">${escapeHtml(p.title || '')}</div>
             </div>
           `).join('')}
         </div>
@@ -1066,14 +967,14 @@ function renderGroupingView() {
           if (p) {
             referenceImage = p.image;
             closeModal();
-            setTimeout(() => openOrderModalWithData(isEdit, order, items, discountType, discountValue, extraFees, referenceImage), 200);
+            setTimeout(() => reopenOrderModal(order, items, discountType, discountValue, extraFees, referenceImage), 200);
           }
         });
       });
 
       document.getElementById('cancel-pick-btn').addEventListener('click', () => {
         closeModal();
-        setTimeout(() => openOrderModalWithData(isEdit, order, items, discountType, discountValue, extraFees, referenceImage), 200);
+        setTimeout(() => reopenOrderModal(order, items, discountType, discountValue, extraFees, referenceImage), 200);
       });
     });
 
@@ -1082,19 +983,17 @@ function renderGroupingView() {
       removeImgBtn.addEventListener('click', () => {
         referenceImage = null;
         closeModal();
-        setTimeout(() => openOrderModalWithData(isEdit, order, items, discountType, discountValue, extraFees, referenceImage), 200);
+        setTimeout(() => reopenOrderModal(order, items, discountType, discountValue, extraFees, referenceImage), 200);
       });
     }
 
-    /* ============================================================
-       الموعد التلقائي
-       ============================================================ */
+    /* ===== الموعد التلقائي ===== */
     document.getElementById('suggest-date-btn').addEventListener('click', () => {
       const subtotal = items.reduce((s, it) => s + ((it.price || 0) * (it.quantity || 0)), 0);
       const discount = calculateDiscount(subtotal);
       const extraFeesTotal = calculateExtraFees(subtotal);
       const currentTotal = subtotal - discount + extraFeesTotal;
-      
+
       if (currentTotal <= 0) {
         toast.error('أضف عناصر أولاً لحساب الموعد');
         return;
@@ -1113,9 +1012,7 @@ function renderGroupingView() {
       }
     });
 
-    /* ============================================================
-       الحالة + العداد
-       ============================================================ */
+    /* ===== الحالة ===== */
     document.querySelectorAll('.status-option').forEach(opt => {
       opt.addEventListener('click', () => {
         document.querySelectorAll('.status-option').forEach(o => o.classList.remove('selected'));
@@ -1124,6 +1021,7 @@ function renderGroupingView() {
       });
     });
 
+    /* ===== عداد الوقت ===== */
     if (isEdit) {
       const timerBtn = document.getElementById('timer-btn');
       const timeDisplay = document.getElementById('work-time-display');
@@ -1163,9 +1061,7 @@ function renderGroupingView() {
       }
     }
 
-    /* ============================================================
-       التسليم الكامل
-       ============================================================ */
+    /* ===== التسليم الكامل ===== */
     if (isEdit && document.getElementById('full-delivery-btn')) {
       document.getElementById('full-delivery-btn').addEventListener('click', () => {
         closeModal();
@@ -1173,41 +1069,22 @@ function renderGroupingView() {
       });
     }
 
-    /* ============================================================
-       زر تذكير بالدفع (جديد)
-       ============================================================ */
+    /* ===== تذكير الدفع ===== */
     if (isEdit && document.getElementById('payment-reminder-btn')) {
       document.getElementById('payment-reminder-btn').addEventListener('click', () => {
         const freshOrder = db.getOrder(order.id);
         const cust = customers.find(c => c.id === freshOrder.customerId);
-        if (!cust || !cust.phone) {
-          toast.error('لا يوجد رقم هاتف للعميل');
-          return;
-        }
+        if (!cust || !cust.phone) { toast.error('لا يوجد رقم هاتف'); return; }
         const remaining = getOrderRemaining(freshOrder);
         const summary = getOrderSummary(freshOrder);
         const settings = storage.loadSettings() || { ...DEFAULT_SETTINGS };
         const workshopName = settings.workshopName || 'ورشة تفصيل الجلابيب';
-
-        const msg = `السلام عليكم ${cust.name} 🌹
-تذكير ودّي من ${workshopName}
-
-━━━━━━━━━━━━━━━
-🧵 الطلب: ${summary.summary}
-💰 الإجمالي: ${money(freshOrder.totalPrice)} جنيه
-💵 المدفوع: ${money(freshOrder.deposit || 0)} جنيه
-━━━━━━━━━━━━━━━
-⏳ *المتبقي: ${money(remaining)} جنيه*
-
-نشكرك على تعاملك معنا 🌟`;
-
+        const msg = `السلام عليكم ${cust.name} 🌹\nتذكير ودّي من ${workshopName}\n\n━━━━━━━━━━━━━━━\n🧵 الطلب: ${summary.summary}\n💰 الإجمالي: ${money(freshOrder.totalPrice)} جنيه\n💵 المدفوع: ${money(freshOrder.deposit || 0)} جنيه\n━━━━━━━━━━━━━━━\n⏳ *المتبقي: ${money(remaining)} جنيه*\n\nنشكرك على تعاملك معنا 🌟`;
         openWhatsApp(cust.phone, msg);
       });
     }
 
-    /* ============================================================
-       حفظ النموذج
-       ============================================================ */
+    /* ===== حفظ النموذج ===== */
     document.getElementById('order-form').addEventListener('submit', (e) => {
       e.preventDefault();
 
@@ -1217,18 +1094,11 @@ function renderGroupingView() {
       const receivedDate = document.getElementById('order-received-date').value || null;
       const dueDate = document.getElementById('order-due-date').value || null;
 
-      if (!customerId) {
-        toast.error('الرجاء اختيار العميل');
-        return;
-      }
+      if (!customerId) { toast.error('الرجاء اختيار العميل'); return; }
 
       const validItems = items.filter(it => it.name && it.name.trim() !== '' && it.price > 0 && it.quantity > 0);
-      if (validItems.length === 0) {
-        toast.error('الرجاء إضافة عنصر واحد على الأقل ببيانات صحيحة');
-        return;
-      }
+      if (validItems.length === 0) { toast.error('الرجاء إضافة عنصر واحد على الأقل'); return; }
 
-      // الحسابات النهائية
       const subtotal = validItems.reduce((s, it) => s + (it.price * it.quantity), 0);
       const discount = calculateDiscount(subtotal);
       const extraFeesTotal = calculateExtraFees(subtotal);
@@ -1236,7 +1106,6 @@ function renderGroupingView() {
       const totalQty = validItems.reduce((s, it) => s + it.quantity, 0);
       const firstItem = validItems[0];
 
-      // التحقق من الحد اليومي
       if (!isEdit) {
         const settings2 = storage.loadSettings() || { ...DEFAULT_SETTINGS };
         const limit = settings2.dailyOrderLimit || 700;
@@ -1304,9 +1173,11 @@ function renderGroupingView() {
     }
   }
 
-  /* دالة إعادة فتح النموذج بعد استرجاع الحالة */
-  function openOrderModalWithData(isEdit, order, items, discountType, discountValue, extraFees, referenceImage) {
-    if (isEdit) {
+  /* ============================================================
+     دالة إعادة فتح النموذج (بعد اختيار صورة)
+     ============================================================ */
+  function reopenOrderModal(order, items, discountType, discountValue, extraFees, referenceImage) {
+    if (order) {
       const currentOrder = db.getOrder(order.id);
       const mergedOrder = { ...currentOrder, items, discountType, discountValue, extraFees, referenceImage };
       openOrderModal(mergedOrder);
@@ -1327,7 +1198,7 @@ function renderGroupingView() {
       <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">اطلب من العميل التوقيع في المساحة التالية.</p>
       <div style="background: var(--bg-color); padding: 10px; border-radius: var(--radius-md); margin-bottom: 12px;">
         <div style="font-size: 12px; color: var(--text-muted);">الطلب:</div>
-        <div style="font-weight: 700;">${getOrderSummary(order).summary}</div>
+        <div style="font-weight: 700;">${escapeHtml(getOrderSummary(order).summary)}</div>
         <div style="font-size: 12px; color: var(--text-muted);">الإجمالي: ${money(order.totalPrice)} جنيه</div>
       </div>
       <div style="position: relative; border: 2px dashed var(--border-color); border-radius: var(--radius-md); background: white; margin-bottom: 12px; overflow: hidden;">
@@ -1408,10 +1279,9 @@ function renderGroupingView() {
 
   container.querySelector('#view-list-btn').addEventListener('click', () => { viewMode = 'list'; renderOrdersPage(container); });
   container.querySelector('#view-kanban-btn').addEventListener('click', () => { viewMode = 'kanban'; renderOrdersPage(container); });
-const groupingBtn = container.querySelector('#view-grouping-btn');
-if (groupingBtn) {
-  groupingBtn.addEventListener('click', () => { viewMode = 'grouping'; renderOrdersPage(container); });
-}
+  const groupingBtn = container.querySelector('#view-grouping-btn');
+  if (groupingBtn) groupingBtn.addEventListener('click', () => { viewMode = 'grouping'; renderOrdersPage(container); });
+
   const searchInput = container.querySelector('#search-order-input');
   if (searchInput) {
     searchInput.addEventListener('input', (e) => {
@@ -1426,30 +1296,28 @@ if (groupingBtn) {
   container.querySelectorAll('.status-filter-btn').forEach(btn => {
     btn.addEventListener('click', () => { selectedStatus = btn.dataset.status; renderOrdersPage(container); });
   });
-// النقر على طلب داخل مجموعة التجميع
-container.querySelectorAll('.group-order-item').forEach(item => {
-  item.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const order = db.getOrder(item.dataset.id);
-    if (order) openOrderModal(order);
-  });
-});
 
-   
+  container.querySelectorAll('.order-preview-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      previewOrder(btn.dataset.id);
+    });
+  });
+
+  container.querySelectorAll('.group-order-item').forEach(item => {
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const order = db.getOrder(item.dataset.id);
+      if (order) openOrderModal(order);
+    });
+  });
+
   container.querySelectorAll('.order-item').forEach(item => {
     item.addEventListener('click', () => {
       const order = db.getOrder(item.dataset.id);
       if (order) openOrderModal(order);
     });
   });
-   
-// زر المعاينة السريعة
-container.querySelectorAll('.order-preview-btn').forEach(btn => {
-  btn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    previewOrder(btn.dataset.id);
-  });
-});
 
   container.querySelectorAll('.kanban-card').forEach(card => {
     card.addEventListener('click', () => {
