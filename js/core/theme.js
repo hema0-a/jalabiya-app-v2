@@ -1,12 +1,13 @@
 /* ============================================================
-   theme.js - إدارة الألوان والثيمات والخطوط (V2)
+   theme.js - إدارة الألوان والثيمات والخطوط والخلفيات (V2)
+   (النسخة الكاملة الشاملة)
    ============================================================ */
 
 import { DEFAULT_SETTINGS } from './config.js';
 import * as storage from './storage.js';
 
 /* ============================================================
-   الثيمات الجاهزة
+   الثيمات الجاهزة (9 ثيمات)
    ============================================================ */
 export const THEME_PRESETS = {
   classic: {
@@ -33,7 +34,47 @@ export const THEME_PRESETS = {
     name: 'بسيط',
     icon: '⚫',
     colors: { primary: '#424242', primaryDark: '#212121', accent: '#757575', bg: '#F5F5F5' }
+  },
+  pink: {
+    name: 'وردي',
+    icon: '🌸',
+    colors: { primary: '#C2185B', primaryDark: '#880E4F', accent: '#F06292', bg: '#FCE4EC' }
+  },
+  nature: {
+    name: 'طبيعي',
+    icon: '🌿',
+    colors: { primary: '#388E3C', primaryDark: '#1B5E20', accent: '#8BC34A', bg: '#F1F8E9' }
+  },
+  'black-luxury': {
+    name: 'أسود فاخر',
+    icon: '🖤',
+    colors: { primary: '#212121', primaryDark: '#000000', accent: '#D4AF37', bg: '#ECECEC' }
+  },
+  'sea-blue': {
+    name: 'أزرق بحري',
+    icon: '🌊',
+    colors: { primary: '#0277BD', primaryDark: '#01579B', accent: '#26C6DA', bg: '#E1F5FE' }
   }
+};
+
+/* ============================================================
+   الخلفيات الإبداعية
+   ============================================================ */
+export const BACKGROUNDS = {
+  none: { name: 'بدون', icon: '⬜' },
+  fabric: { name: 'نسيج قماش', icon: '🧵' },
+  sewing: { name: 'نمط خياطة', icon: '🪡' },
+  geometric: { name: 'هندسي', icon: '🔷' },
+  paper: { name: 'ورقي', icon: '📄' }
+};
+
+/* ============================================================
+   أنماط الأيقونات
+   ============================================================ */
+export const ICON_STYLES = {
+  default: { name: 'افتراضي', icon: '😊' },
+  badge: { name: 'شارة ملونة', icon: '🎨' },
+  minimal: { name: 'بسيط خطي', icon: '➖' }
 };
 
 /* ============================================================
@@ -76,10 +117,36 @@ export function applyFont(fontFamily, fontSize) {
   const root = document.documentElement;
   const family = FONT_FAMILIES[fontFamily] || FONT_FAMILIES.default;
   root.style.setProperty('--font-family', family.stack);
-  
+
   const size = FONT_SIZES[fontSize] ? FONT_SIZES[fontSize].value : 1;
   document.body.style.fontSize = (16 * size) + 'px';
   root.style.setProperty('--font-scale', String(size));
+}
+
+/* ============================================================
+   تطبيق الخلفية الإبداعية
+   ============================================================ */
+export function applyBackground(backgroundId) {
+  const body = document.body;
+  // إزالة كل الخلفيات السابقة
+  Object.keys(BACKGROUNDS).forEach(bg => body.classList.remove('bg-' + bg));
+  // إضافة الخلفية الجديدة
+  if (backgroundId && backgroundId !== 'none') {
+    body.classList.add('bg-' + backgroundId);
+  }
+}
+
+/* ============================================================
+   تطبيق نمط الأيقونات
+   ============================================================ */
+export function applyIconStyle(iconStyleId) {
+  const body = document.body;
+  // إزالة كل الأنماط السابقة
+  Object.keys(ICON_STYLES).forEach(style => body.classList.remove('icons-' + style));
+  // إضافة النمط الجديد
+  if (iconStyleId && iconStyleId !== 'default') {
+    body.classList.add('icons-' + iconStyleId);
+  }
 }
 
 /* ============================================================
@@ -87,15 +154,25 @@ export function applyFont(fontFamily, fontSize) {
    ============================================================ */
 export function loadTheme() {
   const settings = storage.loadSettings() || { ...DEFAULT_SETTINGS };
-  
+
+  // الألوان
   if (settings.theme) {
     applyTheme(settings.theme);
   } else {
     applyTheme(DEFAULT_SETTINGS.theme);
   }
-  
+
+  // أوضاع العرض
   applyDisplayModes(settings);
+
+  // الخطوط
   applyFont(settings.fontFamily || 'default', settings.fontSize || 'normal');
+
+  // الخلفية
+  applyBackground(settings.background || 'none');
+
+  // نمط الأيقونات
+  applyIconStyle(settings.iconStyle || 'default');
 }
 
 /* ============================================================
@@ -129,11 +206,28 @@ export function saveFontSettings(fontFamily, fontSize) {
   applyFont(fontFamily, fontSize);
 }
 
-/* ============================================================
-   استعادة الخط الافتراضي
-   ============================================================ */
 export function resetFontSettings() {
   saveFontSettings('default', 'normal');
+}
+
+/* ============================================================
+   حفظ الخلفية
+   ============================================================ */
+export function saveBackground(backgroundId) {
+  let settings = storage.loadSettings() || { ...DEFAULT_SETTINGS };
+  settings.background = backgroundId;
+  storage.saveSettings(settings);
+  applyBackground(backgroundId);
+}
+
+/* ============================================================
+   حفظ نمط الأيقونات
+   ============================================================ */
+export function saveIconStyle(iconStyleId) {
+  let settings = storage.loadSettings() || { ...DEFAULT_SETTINGS };
+  settings.iconStyle = iconStyleId;
+  storage.saveSettings(settings);
+  applyIconStyle(iconStyleId);
 }
 
 /* ============================================================
@@ -184,5 +278,5 @@ function adjustColor(hex, percent) {
   r = Math.max(0, Math.min(255, r + percent));
   g = Math.max(0, Math.min(255, g + percent));
   b = Math.max(0, Math.min(255, b + percent));
-  return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
+  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
 }
