@@ -6,7 +6,7 @@
 import * as db from '../core/db.js';
 import { toast } from './toast.js';
 import { openModal, closeModal } from './modal.js';
-import { money, formatDate, daysBetween, today } from '../core/utils.js';
+import { money, formatDate, daysBetween, today, escapeHtml } from '../core/utils.js';
 import { DEFAULT_SETTINGS } from '../core/config.js';
 import * as storage from '../core/storage.js';
 
@@ -31,12 +31,12 @@ export function previewCustomer(customerId) {
   const html = `
     <div style="text-align: center; margin-bottom: 16px;">
       <div style="width: 60px; height: 60px; background: linear-gradient(135deg, var(--primary-color), var(--primary-dark)); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 8px; color: white; font-size: 24px; font-weight: 800;">
-        ${customer.name.charAt(0)}
-      </div>
-      <h3 style="margin: 0; font-size: 17px;">
-        ${customer.isVip ? '👑 ' : ''}${customer.name}
-      </h3>
-      ${customer.phone ? `<div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">📞 ${customer.phone}</div>` : ''}
+  ${escapeHtml(customer.name).charAt(0)}
+</div>
+<h3 style="margin: 0; font-size: 17px;">
+  ${customer.isVip ? '👑 ' : ''}${escapeHtml(customer.name)}
+</h3>
+${customer.phone ? `<div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">📞 ${escapeHtml(customer.phone)}</div>` : ''}
     </div>
 
     <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 12px;">
@@ -151,8 +151,8 @@ export function previewOrder(orderId) {
       <div style="display: inline-block; padding: 4px 12px; border-radius: var(--radius-full); background: ${statusColors[status]}20; color: ${statusColors[status]}; font-size: 12px; font-weight: 700;">
         ${statusLabels[status]}
       </div>
-      <h3 style="margin: 8px 0 0 0; font-size: 17px;">👤 ${custName}</h3>
-      ${customer && customer.phone ? `<div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">📞 ${customer.phone}</div>` : ''}
+      <h3 style="margin: 8px 0 0 0; font-size: 17px;">👤 ${escapeHtml(custName)}</h3>
+${customer && customer.phone ? `<div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">📞 ${escapeHtml(customer.phone)}</div>` : ''}
     </div>
 
     ${deadlineHtml}
