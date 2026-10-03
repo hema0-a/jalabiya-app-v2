@@ -229,5 +229,20 @@ window.addEventListener('beforeunload', () => {
   } catch (e) { /* ignore */ }
 });
 
+/* ============================================================
+   تسجيل Service Worker (PWA)
+   ============================================================ */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js', { scope: './' })
+      .then((registration) => {
+        console.log('✅ [PWA] Service Worker registered:', registration.scope);
+      })
+      .catch((error) => {
+        console.warn('⚠️ [PWA] Service Worker registration failed:', error);
+      });
+  });
+}
+
 
 window.__app = { version: APP_CONFIG.version, db, events, EVENTS };
