@@ -1,14 +1,9 @@
 /* ============================================================
    storage.js - طبقة التخزين (V2)
-   
-   يعزل التطبيق عن localStorage مباشرة — يسهل التبديل إلى IndexedDB لاحقاً
    ============================================================ */
 
-import { APP_CONFIG } from './config.js';
+import { APP_CONFIG, DEFAULT_SETTINGS } from './config.js';
 
-/**
- * حفظ JSON بأمان
- */
 export function setItem(key, value) {
   try {
     localStorage.setItem(key, JSON.stringify(value));
@@ -19,9 +14,6 @@ export function setItem(key, value) {
   }
 }
 
-/**
- * قراءة JSON بأمان
- */
 export function getItem(key, fallback = null) {
   try {
     const raw = localStorage.getItem(key);
@@ -33,9 +25,6 @@ export function getItem(key, fallback = null) {
   }
 }
 
-/**
- * حذف مفتاح
- */
 export function removeItem(key) {
   try {
     localStorage.removeItem(key);
@@ -45,9 +34,6 @@ export function removeItem(key) {
   }
 }
 
-/**
- * حجم التخزين المستخدم (بالبايت)
- */
 export function getStorageSize() {
   let total = 0;
   try {
@@ -60,12 +46,9 @@ export function getStorageSize() {
   return total;
 }
 
-/**
- * فحص المساحة
- */
 export function checkStorageSpace() {
   const used = getStorageSize();
-  const limit = 4 * 1024 * 1024; // 4 MB
+  const limit = 4 * 1024 * 1024;
   const percent = used / limit;
   return {
     used,
@@ -77,23 +60,14 @@ export function checkStorageSpace() {
   };
 }
 
-/**
- * حفظ قاعدة البيانات
- */
 export function saveDB(db) {
   return setItem(APP_CONFIG.storageKey, db);
 }
 
-/**
- * قراءة قاعدة البيانات
- */
 export function loadDB() {
   return getItem(APP_CONFIG.storageKey, null);
 }
 
-/**
- * حفظ نسخة احتياطية محلية
- */
 export function saveBackup(db) {
   return setItem(APP_CONFIG.backupKey, {
     data: db,
@@ -101,44 +75,30 @@ export function saveBackup(db) {
   });
 }
 
-/**
- * قراءة النسخة الاحتياطية
- */
 export function loadBackup() {
   return getItem(APP_CONFIG.backupKey, null);
 }
 
-/**
- * حفظ الإعدادات
- */
 export function saveSettings(settings) {
   return setItem(APP_CONFIG.settingsKey, settings);
 }
 
-/**
- * قراءة الإعدادات
- */
 export function loadSettings() {
-  return getItem(APP_CONFIG.settingsKey, null);
+  const stored = getItem(APP_CONFIG.settingsKey, null);
+  if (!stored || typeof stored !== 'object') {
+    return { ...DEFAULT_SETTINGS };
+  }
+  return { ...DEFAULT_SETTINGS, ...stored };
 }
 
-/**
- * حفظ الجلسة
- */
 export function saveSession(session) {
   return setItem(APP_CONFIG.sessionKey, session);
 }
 
-/**
- * قراءة الجلسة
- */
 export function loadSession() {
   return getItem(APP_CONFIG.sessionKey, null);
 }
 
-/**
- * حذف الجلسة
- */
 export function clearSession() {
   return removeItem(APP_CONFIG.sessionKey);
 }
