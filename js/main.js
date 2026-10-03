@@ -1,6 +1,6 @@
 /* ============================================================
    main.js - نقطة الدخول الرئيسية (V2)
-   (النسخة الكاملة مع المواسم والأعياد)
+   (النسخة الكاملة: المواسم + الرسائل التلقائية + استلام القماش)
    ============================================================ */
 
 import { APP_CONFIG } from './core/config.js';
@@ -43,7 +43,7 @@ import { renderCommitmentsPage } from './pages/commitments.js';
 import { renderHouseExpensesPage } from './pages/house-expenses.js';
 import { renderLoansPage } from './pages/loans.js';
 
-// استيراد الصفحات - المواسم
+// استيراد الصفحات - المواسم والأعياد
 import { renderOccasionsPage } from './pages/occasions.js';
 
 // استيراد الصفحات - النظام
@@ -56,6 +56,7 @@ import { renderKpisPage } from './pages/kpis.js';
 import { renderReportsPage } from './pages/reports.js';
 import { renderCloudSyncPage } from './pages/cloud-sync.js';
 import { renderSettingsPage } from './pages/settings.js';
+import { renderAutoMessagesSettingsPage } from './pages/auto-messages-settings.js';
 
 console.log(`🚀 ${APP_CONFIG.name} v${APP_CONFIG.version}`);
 
@@ -134,7 +135,7 @@ function startApp() {
   router.register('/house-expenses', renderHouseExpensesPage);
   router.register('/loans', renderLoansPage);
 
-  // المواسم
+  // المواسم والأعياد
   router.register('/occasions', renderOccasionsPage);
 
   // النظام
@@ -147,6 +148,7 @@ function startApp() {
   router.register('/reports', renderReportsPage);
   router.register('/cloud-sync', renderCloudSyncPage);
   router.register('/settings', renderSettingsPage);
+  router.register('/auto-messages-settings', renderAutoMessagesSettingsPage);
 
   // تشغيل الراوتر
   router.init('.main-content');
