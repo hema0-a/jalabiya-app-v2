@@ -526,6 +526,16 @@ export function renderCustomersPage(container) {
       openWhatsApp(phone, `السلام عليكم ${name} 🌹`);
     });
   });
+// ✅ الاستماع لإجراءات FAB السريعة
+if (window.__customersQuickListener) {
+  document.removeEventListener('quick-action', window.__customersQuickListener);
+}
+window.__customersQuickListener = (e) => {
+  if (e.detail.action === 'new-customer') {
+    setTimeout(() => openCustomerModal(null), 150);
+  }
+};
+document.addEventListener('quick-action', window.__customersQuickListener);
 
   container.querySelectorAll('.customer-item').forEach(item => {
     item.addEventListener('click', () => {
