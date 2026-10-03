@@ -1,6 +1,6 @@
 /* ============================================================
    customers.js - صفحة إدارة العملاء (V2)
-   (مُحدَّث: إصلاح حساب المدفوع + أداء محسّن)
+   (النسخة الكاملة - مُصلحة)
    ============================================================ */
 
 import * as db from '../core/db.js';
@@ -27,7 +27,7 @@ const MEASUREMENT_FIELDS = [
 ];
 
 /* ============================================================
-   ✅ إصلاح 1: حساب صحيح للمدفوع والمتبقي
+   حساب معلومات الدفع (إصلاح: يشمل الدفعات الإضافية)
    ============================================================ */
 function getCustomerPaymentInfo(customerId, allOrders, allPayments) {
   const customerOrders = allOrders.filter(o => o.customerId === customerId);
@@ -35,7 +35,6 @@ function getCustomerPaymentInfo(customerId, allOrders, allPayments) {
 
   const totalSpent = customerOrders.reduce((s, o) => s + (o.totalPrice || 0), 0);
 
-  // ⚠️ الإصلاح: نحسب من الدفعات المسجلة فقط (لا نجمع o.deposit لأنها مكررة)
   const totalPaid = allPayments
     .filter(p => orderIds.has(p.orderId))
     .reduce((s, p) => s + (p.amount || 0), 0);
@@ -49,7 +48,7 @@ function getCustomerPaymentInfo(customerId, allOrders, allPayments) {
 }
 
 /* ============================================================
-   ✅ إصلاح 2: تحسين حساب VIP (مرة واحدة بدل N مرة)
+   حساب عدد الطلبات لكل عميل (تحسين أداء)
    ============================================================ */
 function buildOrdersCountMap(allOrders) {
   const map = {};
@@ -59,6 +58,9 @@ function buildOrdersCountMap(allOrders) {
   return map;
 }
 
+/* ============================================================
+   فتح محادثة واتساب
+   ============================================================ */
 function openWhatsApp(phone, message = '') {
   if (!phone) {
     toast.error('لا يوجد رقم هاتف محفوظ لهذا العميل');
@@ -83,22 +85,19 @@ export function renderCustomersPage(container) {
   const settings = storage.loadSettings() || { ...DEFAULT_SETTINGS };
   const vipThreshold = settings.vipThreshold || 3;
 
-  // ✅ حساب عدد الطلبات لكل عميل مرة واحدة
   const ordersCountMap = buildOrdersCountMap(allOrders);
 
-  // ✅ تحديث تصنيفات VIP بكفاءة
   allCustomers.forEach(c => {
     const orderCount = ordersCountMap[c.id] || 0;
     if (c.vipManual !== true) {
       const shouldBeVip = orderCount >= vipThreshold;
       if (c.isVip !== shouldBeVip) {
         db.updateCustomer(c.id, { isVip: shouldBeVip, vipAuto: true });
-        c.isVip = shouldBeVip; // ← تحديث محلي مباشر بدون انتظار db
+        c.isVip = shouldBeVip;
       }
     }
   });
 
-  // تصفية
   let customers = allCustomers.filter(c => {
     if (filterMode === 'vip' && !c.isVip) return false;
     if (filterMode === 'regular' && c.isVip) return false;
@@ -110,7 +109,6 @@ export function renderCustomersPage(container) {
     return true;
   });
 
-  // ترتيب
   customers = customers.sort((a, b) => {
     if (sortMode === 'name') return (a.name || '').localeCompare(b.name || '');
     if (sortMode === 'spend') {
@@ -174,7 +172,6 @@ export function renderCustomersPage(container) {
   } else {
     html += `<div style="display:flex; flex-direction:column; gap:8px;">`;
     customers.forEach(c => {
-      // ✅ استخدام الدالة الجديدة للحساب الصحيح
       const info = getCustomerPaymentInfo(c.id, allOrders, allPayments);
       const hasMeasurements = c.measurements && Object.values(c.measurements).some(v => v);
 
@@ -412,4 +409,128 @@ export function renderCustomersPage(container) {
         </div>
       ` : ''}
 
-      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 12px
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 12px;">
+        <div style="text-align: center; padding: 8px; background: var(--bg-color); border-radius: var(--radius-md);">
+          <div style="font-size: 16px; font-weight: 800; color: var(--primary-color);">${info.ordersCount}</div>
+          <div style="font-size: 10px; color: var(--text-muted);">طلبات</div>
+        </div>
+        <div style="text-align: center; padding: 8px; background: var(--bg-color); border-radius: var(--radius-md);">
+          <div style="font-size: 14px; font-weight: 800; color: #2E7D32;">${money(info.totalPaid)}</div>
+          <div style="font-size: 10px; color: var(--text-muted);">مدفوع</div>
+        </div>
+        <div style="text-align: center; padding: 8px; background: var(--bg-color); border-radius: var(--radius-md);">
+          <div style="font-size: 14px; font-weight: 800; color: ${info.remaining > 0 ? '#dc3545' : '#2E7D32'};">${money(info.remaining)}</div>
+          <div style="font-size: 10px; color: var(--text-muted);">متبقي</div>
+        </div>
+      </div>
+
+      <div style="margin-bottom: 12px;">
+        <h4 style="font-size: 14px; margin-bottom: 8px; color: var(--primary-dark);">📏 المقاسات:</h4>
+        ${measurementsHtml}
+      </div>
+
+      <div style="margin-bottom: 12px;">
+        <h4 style="font-size: 14px; margin-bottom: 8px; color: var(--primary-dark);">📋 آخر الطلبات:</h4>
+        ${ordersHtml}
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+        <button class="btn btn-primary" id="add-order-for-customer">+ طلب جديد</button>
+        <button class="btn btn-outline" id="edit-customer-details">✏️ تعديل البيانات</button>
+      </div>
+      <button class="btn btn-outline btn-full" id="close-customer-details">إغلاق</button>
+    `;
+
+    openModal(detailsHtml);
+
+    if (customer.phone) {
+      const greetingMsg = `السلام عليكم ${customer.name} 🌹\n\nمن ورشة تفصيل الجلابيب.\nكيف حالك؟ نتشرف بخدمتك في أي وقت.`;
+
+      document.getElementById('wa-greeting-btn').addEventListener('click', () => {
+        openWhatsApp(customer.phone, greetingMsg);
+      });
+
+      const reminderMsg = info.remaining > 0
+        ? `السلام عليكم ${customer.name} 🌹\n\nتذكير ودّي بوجود مبلغ متبقي:\n💰 المتبقي: ${money(info.remaining)} جنيه\n\nنشكرك على تعاملك معنا 🌟`
+        : `السلام عليكم ${customer.name} 🌹\n\nنشكرك على سداد جميع مستحقاتك ✓\nنتشرف بخدمتك دائماً.`;
+
+      document.getElementById('wa-reminder-btn').addEventListener('click', () => {
+        openWhatsApp(customer.phone, reminderMsg);
+      });
+    }
+
+    document.getElementById('add-order-for-customer').addEventListener('click', () => {
+      closeModal();
+      setTimeout(() => {
+        toast.info(`انتقل إلى صفحة الطلبات وأضف طلباً للعميل: ${customer.name}`);
+        window.location.hash = '/orders';
+      }, 300);
+    });
+
+    document.getElementById('edit-customer-details').addEventListener('click', () => {
+      closeModal();
+      setTimeout(() => openCustomerModal(customer), 300);
+    });
+
+    document.getElementById('close-customer-details').addEventListener('click', closeModal);
+  }
+
+  /* ============================================================
+     ربط الأحداث
+     ============================================================ */
+  const addBtn = container.querySelector('#add-customer-btn');
+  if (addBtn) {
+    addBtn.addEventListener('click', () => openCustomerModal(null));
+  }
+
+  const searchInput = container.querySelector('#search-input');
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      searchQuery = e.target.value;
+      const pos = e.target.selectionStart;
+      renderCustomersPage(container);
+      const newInput = container.querySelector('#search-input');
+      if (newInput) {
+        newInput.focus();
+        newInput.setSelectionRange(pos, pos);
+      }
+    });
+  }
+
+  container.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      filterMode = btn.dataset.filter;
+      renderCustomersPage(container);
+    });
+  });
+
+  container.querySelectorAll('.sort-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      sortMode = btn.dataset.sort;
+      renderCustomersPage(container);
+    });
+  });
+
+  container.querySelectorAll('.preview-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      previewCustomer(btn.dataset.id);
+    });
+  });
+
+  container.querySelectorAll('.whatsapp-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const phone = btn.dataset.phone;
+      const name = btn.dataset.name;
+      openWhatsApp(phone, `السلام عليكم ${name} 🌹`);
+    });
+  });
+
+  container.querySelectorAll('.customer-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const customer = db.getCustomer(item.dataset.id);
+      if (customer) openCustomerDetails(customer);
+    });
+  });
+}
