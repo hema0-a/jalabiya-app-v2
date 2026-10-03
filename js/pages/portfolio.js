@@ -1,13 +1,15 @@
 /* ============================================================
-   portfolio.js - صفحة معرض أعمال الورشة (V2)
-   (رفع صور + تصنيف + عرض شبكي + مشاركة واتساب + حذف)
+   portfolio.js - صفحة معرض الأعمال (V2)
+   (النسخة الكاملة مع ضغط الصور التلقائي)
    ============================================================ */
 
 import * as db from '../core/db.js';
 import { toast } from '../ui/toast.js';
 import { openModal, closeModal } from '../ui/modal.js';
-import { money, formatDate } from '../core/utils.js';
-import { PORTFOLIO_CATEGORIES, APP_CONFIG } from '../core/config.js';
+import { money, formatDate, escapeHtml } from '../core/utils.js';
+import { PORTFOLIO_CATEGORIES, APP_CONFIG, DEFAULT_SETTINGS } from '../core/config.js';
+import * as storage from '../core/storage.js';
+import { compressImage, getCompressionSettings } from '../core/image-compressor.js';
 
 // متغيرات حالة الصفحة
 let selectedCategory = 'all';
@@ -16,7 +18,7 @@ let searchQuery = '';
 export function renderPortfolioPage(container) {
   const allItems = db.getPortfolio();
 
-  // 1. تصفية العناصر
+  // تصفية العناصر
   const items = allItems.filter(item => {
     if (selectedCategory !== 'all' && item.category !== selectedCategory) return false;
     if (searchQuery) {
@@ -28,11 +30,10 @@ export function renderPortfolioPage(container) {
     return true;
   }).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
-  // 2. إحصائيات
+  // إحصائيات
   const totalItems = allItems.length;
   const totalCategories = new Set(allItems.map(i => i.category)).size;
 
-  // 3. بناء الواجهة
   let html = `
     <div class="card">
       <div class="flex-between mb-2">
@@ -54,7 +55,7 @@ export function renderPortfolioPage(container) {
 
       <!-- البحث -->
       <div class="form-group" style="margin-bottom: 10px;">
-        <input type="text" id="search-portfolio-input" class="form-control" placeholder="🔍 ابحث في المعرض..." value="${searchQuery}">
+        <input type="text" id="search-portfolio-input" class="form-control" placeholder="🔍 ابحث في المعرض..." value="${escapeHtml(searchQuery)}">
       </div>
 
       <!-- فلترة التصنيف -->
@@ -73,7 +74,7 @@ export function renderPortfolioPage(container) {
       </div>
   `;
 
-  // 4. عرض العناصر
+  // عرض العناصر
   if (items.length === 0) {
     html += `
       <div class="empty-state">
@@ -83,17 +84,16 @@ export function renderPortfolioPage(container) {
       </div>
     `;
   } else {
-    // عرض شبكي (2x2 في الجوال)
     html += `<div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;">`;
     items.forEach(item => {
       const cat = PORTFOLIO_CATEGORIES.find(c => c.id === item.category) || PORTFOLIO_CATEGORIES[7];
       html += `
         <div class="portfolio-card" data-id="${item.id}" style="border: 1px solid var(--border-color); border-radius: var(--radius-md); overflow: hidden; background: var(--bg-color); cursor: pointer; transition: transform 0.2s;">
           <div style="width: 100%; height: 140px; background: #f0f0f0; display: flex; align-items: center; justify-content: center; overflow: hidden;">
-            <img src="${item.image}" alt="${item.title}" style="width: 100%; height: 100%; object-fit: cover;">
+            <img src="${item.image}" alt="${escapeHtml(item.title)}" style="width: 100%; height: 100%; object-fit: cover;">
           </div>
           <div style="padding: 8px;">
-            <div style="font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px;">${item.title || 'بدون عنوان'}</div>
+            <div style="font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px;">${escapeHtml(item.title || 'بدون عنوان')}</div>
             <div style="font-size: 10px; color: ${cat.id === 'other' ? 'var(--text-muted)' : 'var(--primary-color)'}; font-weight: 600;">${cat.icon} ${cat.label}</div>
             ${item.price ? `<div style="font-size: 11px; font-weight: 800; color: var(--accent-color); margin-top: 4px;">${money(item.price)} جنيه</div>` : ''}
           </div>
@@ -106,18 +106,20 @@ export function renderPortfolioPage(container) {
   html += `</div>`;
   container.innerHTML = html;
 
-  // ============================================================
-  // نموذج إضافة صورة
-  // ============================================================
+  /* ============================================================
+     نموذج إضافة صورة
+     ============================================================ */
   function openPortfolioModal() {
-    const categoryOptions = PORTFOLIO_CATEGORIES.map(c => 
+    const categoryOptions = PORTFOLIO_CATEGORIES.map(c =>
       `<option value="${c.id}">${c.icon} ${c.label}</option>`
     ).join('');
+
+    const compressionSettings = getCompressionSettings();
 
     const formHtml = `
       <h3 class="card-title no-border">📸 إضافة صورة للمعرض</h3>
       <form id="portfolio-form">
-        
+
         <!-- حقل الصورة -->
         <div class="form-group">
           <label>الصورة *</label>
@@ -131,6 +133,9 @@ export function renderPortfolioPage(container) {
             📷 اختر صورة
           </label>
           <input type="file" id="portfolio-file" accept="image/*" style="display: none;">
+          <div id="compression-info" style="font-size: 11px; color: var(--text-muted); margin-top: 8px; text-align: center; display: none;">
+            🗜️ سيتم ضغط الصورة تلقائياً عند الحفظ (جودة ${Math.round(compressionSettings.quality * 100)}%)
+          </div>
         </div>
 
         <!-- العنوان -->
@@ -161,37 +166,73 @@ export function renderPortfolioPage(container) {
 
         <div class="flex-between mt-2">
           <button type="button" class="btn btn-outline" id="cancel-portfolio-btn">إلغاء</button>
-          <button type="submit" class="btn btn-primary">حفظ</button>
+          <button type="submit" class="btn btn-primary" id="submit-portfolio-btn">حفظ</button>
         </div>
       </form>
     `;
 
     openModal(formHtml);
 
-    // ===== الصورة =====
-    let tempImage = null;
+    /* ===== الصورة ===== */
+    let tempImage = null; // سيتم حفظ الصورة المضغوطة هنا
     const previewDiv = document.getElementById('portfolio-preview');
     const fileInput = document.getElementById('portfolio-file');
+    const compressionInfo = document.getElementById('compression-info');
 
-    fileInput.addEventListener('change', (e) => {
+    fileInput.addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (!file) return;
 
-      const sizeKB = file.size / 1024;
-      if (sizeKB > APP_CONFIG.maxPortfolioImageKB) {
-        toast.error(`حجم الصورة كبير جداً. الحد الأقصى ${APP_CONFIG.maxPortfolioImageKB}KB`);
+      // التحقق من أنه صورة
+      if (!file.type.startsWith('image/')) {
+        toast.error('الرجاء اختيار صورة صالحة');
         return;
       }
 
+      // عرض معاينة سريعة (قبل الضغط)
       const reader = new FileReader();
       reader.onload = (event) => {
-        tempImage = event.target.result;
-        previewDiv.innerHTML = `<img src="${tempImage}" style="width: 100%; height: 100%; object-fit: cover; border-radius: var(--radius-md);">`;
+        previewDiv.innerHTML = `<img src="${event.target.result}" style="width: 100%; height: 100%; object-fit: cover; border-radius: var(--radius-md); opacity: 0.7;">`;
       };
       reader.readAsDataURL(file);
+
+      // عرض معلومات الضغط
+      compressionInfo.style.display = 'block';
+      compressionInfo.innerHTML = `⏳ جاري ضغط الصورة...`;
+      compressionInfo.style.color = 'var(--primary-color)';
+
+      try {
+        // ضغط الصورة تلقائياً
+        const result = await compressImage(file, {
+          maxWidth: 1200,
+          maxHeight: 1200,
+          quality: 0.75,
+          maxSizeKB: 500
+        });
+
+        tempImage = result.dataUrl;
+
+        // عرض الصورة المضغوطة
+        previewDiv.innerHTML = `<img src="${tempImage}" style="width: 100%; height: 100%; object-fit: cover; border-radius: var(--radius-md);">`;
+
+        // عرض نتيجة الضغط
+        const ratioColor = result.ratio >= 50 ? '#2E7D32' : result.ratio >= 20 ? '#F57C00' : 'var(--text-muted)';
+        compressionInfo.innerHTML = `
+          ✅ تم الضغط: <strong style="color: ${ratioColor};">${result.ratio}%</strong> توفير
+          <br>
+          <span style="font-size: 10px;">${result.originalSizeKB}KB ← ${result.sizeKB}KB (${result.width}×${result.height})</span>
+        `;
+        compressionInfo.style.color = 'var(--text-muted)';
+
+      } catch (error) {
+        console.error('فشل ضغط الصورة:', error);
+        toast.error('فشل ضغط الصورة، سيتم استخدام الصورة الأصلية');
+        // في حالة الفشل، نستخدم الصورة الأصلية
+        tempImage = reader.result;
+      }
     });
 
-    // ===== حفظ النموذج =====
+    /* ===== حفظ النموذج ===== */
     document.getElementById('portfolio-form').addEventListener('submit', (e) => {
       e.preventDefault();
 
@@ -219,22 +260,22 @@ export function renderPortfolioPage(container) {
     document.getElementById('cancel-portfolio-btn').addEventListener('click', closeModal);
   }
 
-  // ============================================================
-  // نافذة عرض الصورة
-  // ============================================================
+  /* ============================================================
+     نافذة عرض الصورة
+     ============================================================ */
   function openPortfolioItemDetails(item) {
     const cat = PORTFOLIO_CATEGORIES.find(c => c.id === item.category) || PORTFOLIO_CATEGORIES[7];
     const detailsHtml = `
       <div style="text-align: center;">
         <img src="${item.image}" style="width: 100%; max-height: 60vh; object-fit: contain; border-radius: var(--radius-md); background: #f0f0f0;">
       </div>
-      <h3 class="card-title no-border" style="margin-top: 12px; text-align: center;">${item.title}</h3>
+      <h3 class="card-title no-border" style="margin-top: 12px; text-align: center;">${escapeHtml(item.title)}</h3>
       <div style="text-align: center; margin-bottom: 12px;">
         <span class="badge" style="background: var(--bg-color); color: var(--primary-color);">${cat.icon} ${cat.label}</span>
         ${item.price ? `<span class="badge" style="background: #FFF8E1; color: #F57F17; margin-right: 6px;">💰 ${money(item.price)} جنيه</span>` : ''}
       </div>
-      ${item.note ? `<p style="font-size: 13px; color: var(--text-muted); text-align: center; margin-bottom: 12px;">📝 ${item.note}</p>` : ''}
-      
+      ${item.note ? `<p style="font-size: 13px; color: var(--text-muted); text-align: center; margin-bottom: 12px;">📝 ${escapeHtml(item.note)}</p>` : ''}
+
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
         <button class="btn btn-primary" id="share-portfolio-btn" style="background: #25D366;">📱 مشاركة واتساب</button>
         <button class="btn btn-outline" id="download-portfolio-btn">⬇️ حفظ الصورة</button>
@@ -258,7 +299,7 @@ export function renderPortfolioPage(container) {
     document.getElementById('download-portfolio-btn').addEventListener('click', () => {
       const a = document.createElement('a');
       a.href = item.image;
-      a.download = `${item.title || 'portfolio'}.png`;
+      a.download = `${item.title || 'portfolio'}.jpg`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -278,9 +319,9 @@ export function renderPortfolioPage(container) {
     document.getElementById('close-portfolio-details').addEventListener('click', closeModal);
   }
 
-  // ============================================================
-  // ربط الأحداث
-  // ============================================================
+  /* ============================================================
+     ربط الأحداث
+     ============================================================ */
 
   const addBtn = container.querySelector('#add-portfolio-btn');
   if (addBtn) {
