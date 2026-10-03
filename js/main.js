@@ -18,7 +18,7 @@ import { cleanOldTrashItems } from './core/trash.js';
 import { showDueOrdersNotification } from './core/notifications.js';
 import { initSearchShortcut } from './ui/universal-search.js';
 import { initSync, syncNow } from './core/sync.js';
-import { isSignedIn } from './core/cloud-auth.js';
+import { isSignedIn, initFirebase, waitForAuthReady } from './core/cloud-auth.js';
 import { renderQuickActions } from './ui/quick-actions.js';
 import { initAutoBackup } from './core/auto-backup.js';
 import { initSmartSync, cleanOldQueueChanges } from './core/smart-sync.js';
@@ -183,14 +183,23 @@ function startApp() {
     showDueOrdersNotification();
   }, 1000);
 
-  // المزامنة السحابية
-  setupCloudSync();
+    // المزامنة السحابية
+  setupCloudSync().catch(e => console.warn('⚠️ فشل المزامنة:', e));
 }
 
 /* ============================================================
    إعداد المزامنة السحابية
    ============================================================ */
-function setupCloudSync() {
+async function setupCloudSync() {
+  // ✅ انتظار Firebase قبل فحص حالة الدخول
+  try {
+    await initFirebase();
+    await waitForAuthReady();
+    console.log('✅ [Main] Firebase جاهز — حالة الدخول:', isSignedIn());
+  } catch (e) {
+    console.warn('⚠️ [Main] فشل تهيئة Firebase:', e);
+  }
+
   if (isSignedIn()) {
     console.log('☁️ المستخدم مسجّل دخول، بدء المزامنة...');
     initSync().then(ready => {
