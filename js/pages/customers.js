@@ -8,6 +8,7 @@ import { toast } from '../ui/toast.js';
 import { openModal, closeModal } from '../ui/modal.js';
 import { today, money, formatDate } from '../core/utils.js';
 import { DEFAULT_SETTINGS } from '../core/config.js';
+import { previewCustomer } from '../ui/quick-preview.js';
 import * as storage from '../core/storage.js';
 
 let searchQuery = '';
@@ -147,13 +148,16 @@ export function renderCustomersPage(container) {
               ${c.isVip ? '👑 ' : ''}${c.name}
             </div>
             <div style="display: flex; gap: 6px; align-items: center;">
-              ${c.isVip ? '<span class="badge" style="background: #FFF8E1; color: #F57F17;">VIP</span>' : ''}
-              ${c.phone ? `
-                <button class="whatsapp-btn" data-phone="${c.phone}" data-name="${c.name}" style="background: #25D366; color: white; border: none; padding: 6px 10px; border-radius: var(--radius-md); font-size: 13px; cursor: pointer; font-weight: 700; min-height: 30px;">
-                  📱
-                </button>
-              ` : ''}
-            </div>
+    ${c.isVip ? '<span class="badge" style="background: #FFF8E1; color: #F57F17;">VIP</span>' : ''}
+    <button class="preview-btn" data-id="${c.id}" title="معاينة سريعة" style="background: var(--bg-color); color: var(--primary-color); border: 1px solid var(--border-color); padding: 6px 10px; border-radius: var(--radius-md); font-size: 13px; cursor: pointer; font-weight: 700; min-height: 30px;">
+      👁️
+    </button>
+    ${c.phone ? `
+      <button class="whatsapp-btn" data-phone="${c.phone}" data-name="${c.name}" style="background: #25D366; color: white; border: none; padding: 6px 10px; border-radius: var(--radius-md); font-size: 13px; cursor: pointer; font-weight: 700; min-height: 30px;">
+        📱
+      </button>
+    ` : ''}
+  </div>
           </div>
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; font-size: 12px; color: var(--text-muted);">
             ${c.phone ? `<div>📞 ${c.phone}</div>` : '<div></div>'}
@@ -477,6 +481,14 @@ export function renderCustomersPage(container) {
       renderCustomersPage(container);
     });
   });
+   
+   // زر المعاينة السريعة
+container.querySelectorAll('.preview-btn').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    previewCustomer(btn.dataset.id);
+  });
+});
 
   // زر واتساب في القائمة
   container.querySelectorAll('.whatsapp-btn').forEach(btn => {
