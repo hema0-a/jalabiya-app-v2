@@ -1,6 +1,6 @@
 /* ============================================================
    customers.js - صفحة إدارة العملاء (V2)
-   (النسخة الكاملة - مُصلحة)
+   (النسخة الكاملة مع العرض التدريجي للقوائم الطويلة)
    ============================================================ */
 
 import * as db from '../core/db.js';
@@ -10,6 +10,7 @@ import { today, money, formatDate, escapeHtml } from '../core/utils.js';
 import { DEFAULT_SETTINGS } from '../core/config.js';
 import * as storage from '../core/storage.js';
 import { previewCustomer } from '../ui/quick-preview.js';
+import { initProgressiveList, resetProgressiveList } from '../core/list-renderer.js';
 
 let searchQuery = '';
 let filterMode = 'all';
@@ -27,7 +28,7 @@ const MEASUREMENT_FIELDS = [
 ];
 
 /* ============================================================
-   حساب معلومات الدفع (إصلاح: يشمل الدفعات الإضافية)
+   حساب معلومات الدفع
    ============================================================ */
 function getCustomerPaymentInfo(customerId, allOrders, allPayments) {
   const customerOrders = allOrders.filter(o => o.customerId === customerId);
@@ -48,7 +49,7 @@ function getCustomerPaymentInfo(customerId, allOrders, allPayments) {
 }
 
 /* ============================================================
-   حساب عدد الطلبات لكل عميل (تحسين أداء)
+   حساب عدد الطلبات لكل عميل
    ============================================================ */
 function buildOrdersCountMap(allOrders) {
   const map = {};
@@ -59,7 +60,7 @@ function buildOrdersCountMap(allOrders) {
 }
 
 /* ============================================================
-   فتح محادثة واتساب
+   فتح واتساب
    ============================================================ */
 function openWhatsApp(phone, message = '') {
   if (!phone) {
@@ -87,6 +88,7 @@ export function renderCustomersPage(container) {
 
   const ordersCountMap = buildOrdersCountMap(allOrders);
 
+  // تحديث تصنيفات VIP
   allCustomers.forEach(c => {
     const orderCount = ordersCountMap[c.id] || 0;
     if (c.vipManual !== true) {
@@ -98,6 +100,7 @@ export function renderCustomersPage(container) {
     }
   });
 
+  // تصفية
   let customers = allCustomers.filter(c => {
     if (filterMode === 'vip' && !c.isVip) return false;
     if (filterMode === 'regular' && c.isVip) return false;
@@ -109,6 +112,7 @@ export function renderCustomersPage(container) {
     return true;
   });
 
+  // ترتيب
   customers = customers.sort((a, b) => {
     if (sortMode === 'name') return (a.name || '').localeCompare(b.name || '');
     if (sortMode === 'spend') {
@@ -130,6 +134,7 @@ export function renderCustomersPage(container) {
         <button class="btn btn-primary" id="add-customer-btn">+ إضافة عميل</button>
       </div>
 
+      <!-- إحصائيات -->
       <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px;">
         <div class="stat-card" style="padding: 10px 6px;">
           <div class="stat-value" style="font-size: 20px;">${totalCustomers}</div>
@@ -145,68 +150,160 @@ export function renderCustomersPage(container) {
         </div>
       </div>
 
+      <!-- البحث -->
       <div class="form-group" style="margin-bottom: 10px;">
         <input type="text" id="search-input" class="form-control" placeholder="🔍 ابحث بالاسم أو رقم الهاتف..." value="${escapeHtml(searchQuery)}">
       </div>
 
+      <!-- فلترة -->
       <div class="kanban-toggle">
         <button class="btn ${filterMode === 'all' ? 'btn-primary' : 'btn-outline'} filter-btn" data-filter="all" style="font-size: 12px;">الكل</button>
         <button class="btn ${filterMode === 'vip' ? 'btn-primary' : 'btn-outline'} filter-btn" data-filter="vip" style="font-size: 12px;">👑 VIP</button>
         <button class="btn ${filterMode === 'regular' ? 'btn-primary' : 'btn-outline'} filter-btn" data-filter="regular" style="font-size: 12px;">عادي</button>
       </div>
 
+      <!-- الترتيب -->
       <div style="display: flex; gap: 6px; margin-bottom: 12px;">
         <button class="btn ${sortMode === 'recent' ? 'btn-primary' : 'btn-outline'} sort-btn" data-sort="recent" style="flex:1; font-size: 11px; min-height: 32px;">🕒 الأحدث</button>
         <button class="btn ${sortMode === 'spend' ? 'btn-primary' : 'btn-outline'} sort-btn" data-sort="spend" style="flex:1; font-size: 11px; min-height: 32px;">💰 الأعلى شراءً</button>
         <button class="btn ${sortMode === 'name' ? 'btn-primary' : 'btn-outline'} sort-btn" data-sort="name" style="flex:1; font-size: 11px; min-height: 32px;">🔤 أبجدي</button>
       </div>
+
+      <!-- معلومات العدد -->
+      ${customers.length > 20 ? `
+        <div style="background: #E3F2FD; padding: 8px 12px; border-radius: var(--radius-md); margin-bottom: 12px; font-size: 12px; color: #1565C0;">
+          ℹ️ يتم عرض 20 عميلاً في البداية، وسيتم تحميل المزيد عند التمرير.
+        </div>
+      ` : ''}
+
+      <!-- حاوية القائمة التدريجية -->
+      <div id="customers-progressive-list"></div>
+    </div>
   `;
 
-  if (customers.length === 0) {
-    html += `
-      <div class="empty-state">
-        <div class="empty-state-icon">👥</div>
-        <p>${searchQuery || filterMode !== 'all' ? 'لا توجد نتائج مطابقة.' : 'لا يوجد عملاء مسجلين حتى الآن.'}</p>
-      </div>
-    `;
-  } else {
-    html += `<div style="display:flex; flex-direction:column; gap:8px;">`;
-    customers.forEach(c => {
-      const info = getCustomerPaymentInfo(c.id, allOrders, allPayments);
-      const hasMeasurements = c.measurements && Object.values(c.measurements).some(v => v);
+  container.innerHTML = html;
 
-      html += `
-        <div class="customer-item" data-id="${c.id}" style="border: 1px solid var(--border-color); ${c.isVip ? 'border-right: 4px solid #F57F17;' : ''} padding: 12px; border-radius: var(--radius-md); background: var(--bg-color); cursor: pointer;">
-          <div class="flex-between" style="margin-bottom: 6px;">
-            <div style="font-weight: bold; font-size: 15px;">
-              ${c.isVip ? '👑 ' : ''}${escapeHtml(c.name)}
-            </div>
-            <div style="display: flex; gap: 6px; align-items: center;">
-              ${c.isVip ? '<span class="badge" style="background: #FFF8E1; color: #F57F17;">VIP</span>' : ''}
-              <button class="preview-btn" data-id="${c.id}" title="معاينة سريعة" style="background: var(--bg-color); color: var(--primary-color); border: 1px solid var(--border-color); padding: 6px 10px; border-radius: var(--radius-md); font-size: 13px; cursor: pointer; font-weight: 700; min-height: 30px;">
-                👁️
-              </button>
-              ${c.phone ? `
-                <button class="whatsapp-btn" data-phone="${escapeHtml(c.phone)}" data-name="${escapeHtml(c.name)}" style="background: #25D366; color: white; border: none; padding: 6px 10px; border-radius: var(--radius-md); font-size: 13px; cursor: pointer; font-weight: 700; min-height: 30px;">
-                  📱
-                </button>
-              ` : ''}
-            </div>
+  // ============================================================
+  // بناء عنصر عميل واحد
+  // ============================================================
+  function buildCustomerItem(c) {
+    const info = getCustomerPaymentInfo(c.id, allOrders, allPayments);
+    const hasMeasurements = c.measurements && Object.values(c.measurements).some(v => v);
+
+    return `
+      <div class="customer-item" data-id="${c.id}" style="border: 1px solid var(--border-color); ${c.isVip ? 'border-right: 4px solid #F57F17;' : ''} padding: 12px; border-radius: var(--radius-md); background: var(--bg-color); cursor: pointer; margin-bottom: 8px;">
+        <div class="flex-between" style="margin-bottom: 6px;">
+          <div style="font-weight: bold; font-size: 15px;">
+            ${c.isVip ? '👑 ' : ''}${escapeHtml(c.name)}
           </div>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; font-size: 12px; color: var(--text-muted);">
-            ${c.phone ? `<div>📞 ${escapeHtml(c.phone)}</div>` : '<div></div>'}
-            <div>📋 ${info.ordersCount} طلب</div>
-            ${info.remaining > 0 ? `<div style="color: #dc3545;">💸 متبقي: ${money(info.remaining)}</div>` : '<div style="color: #2E7D32;">✓ مسدد بالكامل</div>'}
-            ${hasMeasurements ? `<div style="color: var(--primary-color);">📏 مقاسات محفوظة</div>` : '<div></div>'}
+          <div style="display: flex; gap: 6px; align-items: center;">
+            ${c.isVip ? '<span class="badge" style="background: #FFF8E1; color: #F57F17;">VIP</span>' : ''}
+            <button class="preview-btn" data-id="${c.id}" title="معاينة سريعة" style="background: var(--bg-color); color: var(--primary-color); border: 1px solid var(--border-color); padding: 6px 10px; border-radius: var(--radius-md); font-size: 13px; cursor: pointer; font-weight: 700; min-height: 30px;">
+              👁️
+            </button>
+            ${c.phone ? `
+              <button class="whatsapp-btn" data-phone="${escapeHtml(c.phone)}" data-name="${escapeHtml(c.name)}" style="background: #25D366; color: white; border: none; padding: 6px 10px; border-radius: var(--radius-md); font-size: 13px; cursor: pointer; font-weight: 700; min-height: 30px;">
+                📱
+              </button>
+            ` : ''}
           </div>
         </div>
-      `;
-    });
-    html += `</div>`;
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; font-size: 12px; color: var(--text-muted);">
+          ${c.phone ? `<div>📞 ${escapeHtml(c.phone)}</div>` : '<div></div>'}
+          <div>📋 ${info.ordersCount} طلب</div>
+          ${info.remaining > 0 ? `<div style="color: #dc3545;">💸 متبقي: ${money(info.remaining)}</div>` : '<div style="color: #2E7D32;">✓ مسدد بالكامل</div>'}
+          ${hasMeasurements ? `<div style="color: var(--primary-color);">📏 مقاسات محفوظة</div>` : '<div></div>'}
+        </div>
+      </div>
+    `;
   }
 
-  html += `</div>`;
-  container.innerHTML = html;
+  // ============================================================
+  // استخدام العرض التدريجي
+  // ============================================================
+  if (customers.length === 0) {
+    const listContainer = document.getElementById('customers-progressive-list');
+    if (listContainer) {
+      listContainer.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state-icon">👥</div>
+          <p>${searchQuery || filterMode !== 'all' ? 'لا توجد نتائج مطابقة.' : 'لا يوجد عملاء مسجلين حتى الآن.'}</p>
+        </div>
+      `;
+    }
+  } else {
+    initProgressiveList('customers-progressive-list', customers, buildCustomerItem, {
+      batchSize: 20,
+      emptyMessage: 'لا يوجد عملاء'
+    });
+  }
+
+  // ============================================================
+  // ربط الأحداث
+  // ============================================================
+
+  // زر الإضافة
+  const addBtn = container.querySelector('#add-customer-btn');
+  if (addBtn) {
+    addBtn.addEventListener('click', () => openCustomerModal(null));
+  }
+
+  // البحث
+  const searchInput = container.querySelector('#search-input');
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      searchQuery = e.target.value;
+      const pos = e.target.selectionStart;
+      renderCustomersPage(container);
+      const newInput = container.querySelector('#search-input');
+      if (newInput) {
+        newInput.focus();
+        newInput.setSelectionRange(pos, pos);
+      }
+    });
+  }
+
+  // فلترة
+  container.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      filterMode = btn.dataset.filter;
+      renderCustomersPage(container);
+    });
+  });
+
+  // ترتيب
+  container.querySelectorAll('.sort-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      sortMode = btn.dataset.sort;
+      renderCustomersPage(container);
+    });
+  });
+
+  // زر المعاينة
+  container.querySelectorAll('.preview-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      previewCustomer(btn.dataset.id);
+    });
+  });
+
+  // زر واتساب
+  container.querySelectorAll('.whatsapp-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const phone = btn.dataset.phone;
+      const name = btn.dataset.name;
+      openWhatsApp(phone, `السلام عليكم ${name} 🌹`);
+    });
+  });
+
+  // النقر على عميل → تفاصيل
+  container.querySelectorAll('.customer-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const customer = db.getCustomer(item.dataset.id);
+      if (customer) openCustomerDetails(customer);
+    });
+  });
 
   /* ============================================================
      نموذج إضافة/تعديل عميل
@@ -259,7 +356,7 @@ export function renderCustomersPage(container) {
           </label>
           <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); margin-top: 6px; cursor: pointer;">
             <input type="checkbox" id="customer-vip-manual" ${isManualVip ? 'checked' : ''} style="width: 16px; height: 16px;">
-            <span>تثبيت التصنيف يدوياً (بدون تغيير تلقائي)</span>
+            <span>تثبيت التصنيف يدوياً</span>
           </label>
         </div>
 
@@ -474,73 +571,4 @@ export function renderCustomersPage(container) {
 
     document.getElementById('close-customer-details').addEventListener('click', closeModal);
   }
-
-  /* ============================================================
-     ربط الأحداث
-     ============================================================ */
-  const addBtn = container.querySelector('#add-customer-btn');
-  if (addBtn) {
-    addBtn.addEventListener('click', () => openCustomerModal(null));
-  }
-
-  const searchInput = container.querySelector('#search-input');
-  if (searchInput) {
-    searchInput.addEventListener('input', (e) => {
-      searchQuery = e.target.value;
-      const pos = e.target.selectionStart;
-      renderCustomersPage(container);
-      const newInput = container.querySelector('#search-input');
-      if (newInput) {
-        newInput.focus();
-        newInput.setSelectionRange(pos, pos);
-      }
-    });
-  }
-
-  container.querySelectorAll('.filter-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      filterMode = btn.dataset.filter;
-      renderCustomersPage(container);
-    });
-  });
-
-  container.querySelectorAll('.sort-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      sortMode = btn.dataset.sort;
-      renderCustomersPage(container);
-    });
-  });
-
-  container.querySelectorAll('.preview-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      previewCustomer(btn.dataset.id);
-    });
-  });
-
-  container.querySelectorAll('.whatsapp-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const phone = btn.dataset.phone;
-      const name = btn.dataset.name;
-      openWhatsApp(phone, `السلام عليكم ${name} 🌹`);
-    });
-  });
-// ✅ الاستماع لإجراءات FAB السريعة
-if (window.__customersQuickListener) {
-  document.removeEventListener('quick-action', window.__customersQuickListener);
-}
-window.__customersQuickListener = (e) => {
-  if (e.detail.action === 'new-customer') {
-    setTimeout(() => openCustomerModal(null), 150);
-  }
-};
-document.addEventListener('quick-action', window.__customersQuickListener);
-
-  container.querySelectorAll('.customer-item').forEach(item => {
-    item.addEventListener('click', () => {
-      const customer = db.getCustomer(item.dataset.id);
-      if (customer) openCustomerDetails(customer);
-    });
-  });
 }
