@@ -13,7 +13,7 @@ import {
   THEME_PRESETS, BACKGROUNDS, ICON_STYLES, FONT_FAMILIES, FONT_SIZES
 } from '../core/theme.js';
 import { changePin } from '../core/auth.js';
-import { encryptPin, decryptPin } from '../core/pin-crypto.js';
+import { verifyPinAgainstStored } from '../core/pin-crypto.js';
 import { APP_CONFIG, DEFAULT_SETTINGS } from '../core/config.js';
 import * as storage from '../core/storage.js';
 import { escapeHtml, formatDate } from '../core/utils.js';
@@ -662,36 +662,42 @@ export function renderSettingsPage(container) {
      PIN
      ============================================================ */
   container.querySelector('#change-pin-btn').addEventListener('click', () => {
-    const formHtml = `
-      <h3 class="card-title no-border">🔑 تغيير الرقم السري</h3>
-      <form id="pin-form">
-        <div class="form-group"><label>الرقم الحالي *</label><input type="password" id="old-pin" class="form-control" maxlength="4" inputmode="numeric" required></div>
-        <div class="form-group"><label>الرقم الجديد *</label><input type="password" id="new-pin" class="form-control" maxlength="4" inputmode="numeric" required></div>
-        <div class="form-group"><label>تأكيد الرقم *</label><input type="password" id="confirm-pin" class="form-control" maxlength="4" inputmode="numeric" required></div>
-        <div class="flex-between mt-2">
-          <button type="button" class="btn btn-outline" id="cancel-pin-btn">إلغاء</button>
-          <button type="submit" class="btn btn-primary">تغيير</button>
-        </div>
-      </form>
-    `;
-    import('../ui/modal.js').then(({ openModal, closeModal }) => {
-      openModal(formHtml);
-      document.getElementById('pin-form').addEventListener('submit', (e) => {
-        e.preventDefault();
-        const oldPin = document.getElementById('old-pin').value.trim();
-        const newPin = document.getElementById('new-pin').value.trim();
-        const confirmPin = document.getElementById('confirm-pin').value.trim();
-        const dbState = storage.loadDB();
-const storedPin = dbState ? (dbState.password || '0000') : '0000';
-const correctPin = decryptPin(storedPin);
-if (oldPin !== String(correctPin)) { toast.error('الرقم الحالي غير صحيح'); return; }
-        if (!/^\d{4}$/.test(newPin)) { toast.error('الرقم الجديد 4 أرقام'); return; }
-        if (newPin !== confirmPin) { toast.error('غير متطابقين'); return; }
-        if (changePin(newPin)) { toast.success('تم التغيير'); closeModal(); } else { toast.error('فشل'); }
-      });
-      document.getElementById('cancel-pin-btn').addEventListener('click', closeModal);
+  const formHtml = `
+    <h3 class="card-title no-border">🔑 تغيير الرقم السري</h3>
+    <form id="pin-form">
+      <div class="form-group"><label>الرقم الحالي *</label><input type="password" id="old-pin" class="form-control" maxlength="4" inputmode="numeric" required></div>
+      <div class="form-group"><label>الرقم الجديد *</label><input type="password" id="new-pin" class="form-control" maxlength="4" inputmode="numeric" required></div>
+      <div class="form-group"><label>تأكيد الرقم *</label><input type="password" id="confirm-pin" class="form-control" maxlength="4" inputmode="numeric" required></div>
+      <div class="flex-between mt-2">
+        <button type="button" class="btn btn-outline" id="cancel-pin-btn">إلغاء</button>
+        <button type="submit" class="btn btn-primary">تغيير</button>
+      </div>
+    </form>
+  `;
+  import('../ui/modal.js').then(({ openModal, closeModal }) => {
+    openModal(formHtml);
+    document.getElementById('pin-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const oldPin = document.getElementById('old-pin').value.trim();
+      const newPin = document.getElementById('new-pin').value.trim();
+      const confirmPin = document.getElementById('confirm-pin').value.trim();
+
+      const dbState = storage.loadDB();
+      const storedPin = dbState ? (dbState.password || '0000') : '0000';
+
+      const isOldValid = await verifyPinAgainstStored(oldPin, storedPin);
+      if (!isOldValid) { toast.error('الرقم الحالي غير صحيح'); return; }
+
+      if (!/^\d{4}$/.test(newPin)) { toast.error('الرقم الجديد 4 أرقام'); return; }
+      if (newPin !== confirmPin) { toast.error('غير متطابقين'); return; }
+
+      const ok = await changePin(newPin);
+      if (ok) { toast.success('تم التغيير'); closeModal(); }
+      else { toast.error('فشل التغيير'); }
     });
+    document.getElementById('cancel-pin-btn').addEventListener('click', closeModal);
   });
+});
 
   /* ============================================================
      Export/Import
