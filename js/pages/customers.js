@@ -1,19 +1,19 @@
 /* ============================================================
-   customers.js - صفحة إدارة العملاء المتقدمة (V2)
-   (مقاسات + VIP + تفاصيل كاملة + طلبات + دفعات + بحث + واتساب)
+   customers.js - صفحة إدارة العملاء (V2)
+   (مُحدَّث: إصلاح حساب المدفوع + أداء محسّن)
    ============================================================ */
 
 import * as db from '../core/db.js';
 import { toast } from '../ui/toast.js';
 import { openModal, closeModal } from '../ui/modal.js';
-import { today, money, formatDate } from '../core/utils.js';
+import { today, money, formatDate, escapeHtml } from '../core/utils.js';
 import { DEFAULT_SETTINGS } from '../core/config.js';
-import { previewCustomer } from '../ui/quick-preview.js';
 import * as storage from '../core/storage.js';
+import { previewCustomer } from '../ui/quick-preview.js';
 
 let searchQuery = '';
 let filterMode = 'all';
-let sortMode = 'recent'; // recent | spend | name
+let sortMode = 'recent';
 
 const MEASUREMENT_FIELDS = [
   { id: 'shoulder', label: 'الكتف', icon: '📏' },
@@ -26,7 +26,39 @@ const MEASUREMENT_FIELDS = [
   { id: 'hip', label: 'الأرداف', icon: '📐' }
 ];
 
-/* فتح محادثة واتساب مباشرة */
+/* ============================================================
+   ✅ إصلاح 1: حساب صحيح للمدفوع والمتبقي
+   ============================================================ */
+function getCustomerPaymentInfo(customerId, allOrders, allPayments) {
+  const customerOrders = allOrders.filter(o => o.customerId === customerId);
+  const orderIds = new Set(customerOrders.map(o => o.id));
+
+  const totalSpent = customerOrders.reduce((s, o) => s + (o.totalPrice || 0), 0);
+
+  // ⚠️ الإصلاح: نحسب من الدفعات المسجلة فقط (لا نجمع o.deposit لأنها مكررة)
+  const totalPaid = allPayments
+    .filter(p => orderIds.has(p.orderId))
+    .reduce((s, p) => s + (p.amount || 0), 0);
+
+  return {
+    ordersCount: customerOrders.length,
+    totalSpent,
+    totalPaid,
+    remaining: Math.max(0, totalSpent - totalPaid)
+  };
+}
+
+/* ============================================================
+   ✅ إصلاح 2: تحسين حساب VIP (مرة واحدة بدل N مرة)
+   ============================================================ */
+function buildOrdersCountMap(allOrders) {
+  const map = {};
+  allOrders.forEach(o => {
+    map[o.customerId] = (map[o.customerId] || 0) + 1;
+  });
+  return map;
+}
+
 function openWhatsApp(phone, message = '') {
   if (!phone) {
     toast.error('لا يوجد رقم هاتف محفوظ لهذا العميل');
@@ -34,26 +66,34 @@ function openWhatsApp(phone, message = '') {
   }
   let cleanPhone = String(phone).replace(/\D/g, '');
   if (cleanPhone.startsWith('0')) cleanPhone = '2' + cleanPhone;
-  
+
   const url = message
     ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`
     : `https://wa.me/${cleanPhone}`;
   window.open(url, '_blank');
 }
 
+/* ============================================================
+   الصفحة الرئيسية
+   ============================================================ */
 export function renderCustomersPage(container) {
   const allCustomers = db.getCustomers();
+  const allOrders = db.getOrders();
+  const allPayments = db.getPayments();
   const settings = storage.loadSettings() || { ...DEFAULT_SETTINGS };
   const vipThreshold = settings.vipThreshold || 3;
 
-  // تحديث تصنيفات VIP التلقائية
+  // ✅ حساب عدد الطلبات لكل عميل مرة واحدة
+  const ordersCountMap = buildOrdersCountMap(allOrders);
+
+  // ✅ تحديث تصنيفات VIP بكفاءة
   allCustomers.forEach(c => {
-    const orderCount = db.getOrders().filter(o => o.customerId === c.id).length;
+    const orderCount = ordersCountMap[c.id] || 0;
     if (c.vipManual !== true) {
-      const wasVip = c.isVip === true;
       const shouldBeVip = orderCount >= vipThreshold;
-      if (wasVip !== shouldBeVip) {
+      if (c.isVip !== shouldBeVip) {
         db.updateCustomer(c.id, { isVip: shouldBeVip, vipAuto: true });
+        c.isVip = shouldBeVip; // ← تحديث محلي مباشر بدون انتظار db
       }
     }
   });
@@ -74,9 +114,9 @@ export function renderCustomersPage(container) {
   customers = customers.sort((a, b) => {
     if (sortMode === 'name') return (a.name || '').localeCompare(b.name || '');
     if (sortMode === 'spend') {
-      const aSpent = db.getOrders().filter(o => o.customerId === a.id).reduce((s, o) => s + (o.totalPrice || 0), 0);
-      const bSpent = db.getOrders().filter(o => o.customerId === b.id).reduce((s, o) => s + (o.totalPrice || 0), 0);
-      return bSpent - aSpent;
+      const aInfo = getCustomerPaymentInfo(a.id, allOrders, allPayments);
+      const bInfo = getCustomerPaymentInfo(b.id, allOrders, allPayments);
+      return bInfo.totalSpent - aInfo.totalSpent;
     }
     return (b.createdAt || 0) - (a.createdAt || 0);
   });
@@ -108,7 +148,7 @@ export function renderCustomersPage(container) {
       </div>
 
       <div class="form-group" style="margin-bottom: 10px;">
-        <input type="text" id="search-input" class="form-control" placeholder="🔍 ابحث بالاسم أو رقم الهاتف..." value="${searchQuery}">
+        <input type="text" id="search-input" class="form-control" placeholder="🔍 ابحث بالاسم أو رقم الهاتف..." value="${escapeHtml(searchQuery)}">
       </div>
 
       <div class="kanban-toggle">
@@ -117,7 +157,6 @@ export function renderCustomersPage(container) {
         <button class="btn ${filterMode === 'regular' ? 'btn-primary' : 'btn-outline'} filter-btn" data-filter="regular" style="font-size: 12px;">عادي</button>
       </div>
 
-      <!-- فلتر الترتيب -->
       <div style="display: flex; gap: 6px; margin-bottom: 12px;">
         <button class="btn ${sortMode === 'recent' ? 'btn-primary' : 'btn-outline'} sort-btn" data-sort="recent" style="flex:1; font-size: 11px; min-height: 32px;">🕒 الأحدث</button>
         <button class="btn ${sortMode === 'spend' ? 'btn-primary' : 'btn-outline'} sort-btn" data-sort="spend" style="flex:1; font-size: 11px; min-height: 32px;">💰 الأعلى شراءً</button>
@@ -135,34 +174,32 @@ export function renderCustomersPage(container) {
   } else {
     html += `<div style="display:flex; flex-direction:column; gap:8px;">`;
     customers.forEach(c => {
-      const customerOrders = db.getOrders().filter(o => o.customerId === c.id);
-      const totalSpent = customerOrders.reduce((sum, o) => sum + (o.totalPrice || 0), 0);
-      const totalPaid = customerOrders.reduce((sum, o) => sum + (o.deposit || 0), 0);
-      const remaining = totalSpent - totalPaid;
+      // ✅ استخدام الدالة الجديدة للحساب الصحيح
+      const info = getCustomerPaymentInfo(c.id, allOrders, allPayments);
       const hasMeasurements = c.measurements && Object.values(c.measurements).some(v => v);
 
       html += `
         <div class="customer-item" data-id="${c.id}" style="border: 1px solid var(--border-color); ${c.isVip ? 'border-right: 4px solid #F57F17;' : ''} padding: 12px; border-radius: var(--radius-md); background: var(--bg-color); cursor: pointer;">
           <div class="flex-between" style="margin-bottom: 6px;">
             <div style="font-weight: bold; font-size: 15px;">
-              ${c.isVip ? '👑 ' : ''}${c.name}
+              ${c.isVip ? '👑 ' : ''}${escapeHtml(c.name)}
             </div>
             <div style="display: flex; gap: 6px; align-items: center;">
-    ${c.isVip ? '<span class="badge" style="background: #FFF8E1; color: #F57F17;">VIP</span>' : ''}
-    <button class="preview-btn" data-id="${c.id}" title="معاينة سريعة" style="background: var(--bg-color); color: var(--primary-color); border: 1px solid var(--border-color); padding: 6px 10px; border-radius: var(--radius-md); font-size: 13px; cursor: pointer; font-weight: 700; min-height: 30px;">
-      👁️
-    </button>
-    ${c.phone ? `
-      <button class="whatsapp-btn" data-phone="${c.phone}" data-name="${c.name}" style="background: #25D366; color: white; border: none; padding: 6px 10px; border-radius: var(--radius-md); font-size: 13px; cursor: pointer; font-weight: 700; min-height: 30px;">
-        📱
-      </button>
-    ` : ''}
-  </div>
+              ${c.isVip ? '<span class="badge" style="background: #FFF8E1; color: #F57F17;">VIP</span>' : ''}
+              <button class="preview-btn" data-id="${c.id}" title="معاينة سريعة" style="background: var(--bg-color); color: var(--primary-color); border: 1px solid var(--border-color); padding: 6px 10px; border-radius: var(--radius-md); font-size: 13px; cursor: pointer; font-weight: 700; min-height: 30px;">
+                👁️
+              </button>
+              ${c.phone ? `
+                <button class="whatsapp-btn" data-phone="${escapeHtml(c.phone)}" data-name="${escapeHtml(c.name)}" style="background: #25D366; color: white; border: none; padding: 6px 10px; border-radius: var(--radius-md); font-size: 13px; cursor: pointer; font-weight: 700; min-height: 30px;">
+                  📱
+                </button>
+              ` : ''}
+            </div>
           </div>
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; font-size: 12px; color: var(--text-muted);">
-            ${c.phone ? `<div>📞 ${c.phone}</div>` : '<div></div>'}
-            <div>📋 ${customerOrders.length} طلب</div>
-            ${remaining > 0 ? `<div style="color: #dc3545;">💸 متبقي: ${money(remaining)}</div>` : '<div></div>'}
+            ${c.phone ? `<div>📞 ${escapeHtml(c.phone)}</div>` : '<div></div>'}
+            <div>📋 ${info.ordersCount} طلب</div>
+            ${info.remaining > 0 ? `<div style="color: #dc3545;">💸 متبقي: ${money(info.remaining)}</div>` : '<div style="color: #2E7D32;">✓ مسدد بالكامل</div>'}
             ${hasMeasurements ? `<div style="color: var(--primary-color);">📏 مقاسات محفوظة</div>` : '<div></div>'}
           </div>
         </div>
@@ -174,9 +211,9 @@ export function renderCustomersPage(container) {
   html += `</div>`;
   container.innerHTML = html;
 
-  // ============================================================
-  // نموذج إضافة/تعديل عميل
-  // ============================================================
+  /* ============================================================
+     نموذج إضافة/تعديل عميل
+     ============================================================ */
   function openCustomerModal(customer = null) {
     const isEdit = customer !== null;
     const title = isEdit ? 'تعديل بيانات العميل' : 'إضافة عميل جديد';
@@ -200,19 +237,19 @@ export function renderCustomersPage(container) {
       <form id="customer-form">
         <div class="form-group">
           <label>اسم العميل *</label>
-          <input type="text" id="customer-name" class="form-control" value="${nameVal}" required>
+          <input type="text" id="customer-name" class="form-control" value="${escapeHtml(nameVal)}" required>
         </div>
         <div class="form-group">
           <label>رقم الهاتف</label>
-          <input type="tel" id="customer-phone" class="form-control" value="${phoneVal}">
+          <input type="tel" id="customer-phone" class="form-control" value="${escapeHtml(phoneVal)}">
         </div>
         <div class="form-group">
           <label>العنوان</label>
-          <input type="text" id="customer-address" class="form-control" value="${addressVal}" placeholder="اختياري">
+          <input type="text" id="customer-address" class="form-control" value="${escapeHtml(addressVal)}" placeholder="اختياري">
         </div>
         <div class="form-group">
           <label>ملاحظات</label>
-          <input type="text" id="customer-note" class="form-control" value="${noteVal}" placeholder="اختياري">
+          <input type="text" id="customer-note" class="form-control" value="${escapeHtml(noteVal)}" placeholder="اختياري">
         </div>
 
         <div class="form-group">
@@ -302,17 +339,14 @@ export function renderCustomersPage(container) {
     }
   }
 
-  // ============================================================
-  // تفاصيل العميل
-  // ============================================================
+  /* ============================================================
+     تفاصيل العميل
+     ============================================================ */
   function openCustomerDetails(customer) {
-    const customerOrders = db.getOrders()
+    const info = getCustomerPaymentInfo(customer.id, allOrders, allPayments);
+    const customerOrders = allOrders
       .filter(o => o.customerId === customer.id)
       .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-
-    const totalSpent = customerOrders.reduce((sum, o) => sum + (o.totalPrice || 0), 0);
-    const totalPaid = customerOrders.reduce((sum, o) => sum + (o.deposit || 0), 0);
-    const remaining = totalSpent - totalPaid;
 
     const measurementsHtml = (() => {
       const m = customer.measurements || {};
@@ -342,7 +376,7 @@ export function renderCustomersPage(container) {
           return `
             <div style="background: var(--surface-color); padding: 10px; border-radius: var(--radius-md); border-right: 3px solid ${statusColors[status]}; margin-bottom: 6px;">
               <div class="flex-between" style="margin-bottom: 4px;">
-                <div style="font-weight: 600; font-size: 13px;">${o.garmentType} (×${o.quantity})</div>
+                <div style="font-weight: 600; font-size: 13px;">${escapeHtml(o.garmentType || '')} (×${o.quantity})</div>
                 <div style="font-size: 11px; color: ${statusColors[status]}; font-weight: 700;">${statusLabels[status]}</div>
               </div>
               <div style="font-size: 11px; color: var(--text-muted); display: flex; justify-content: space-between;">
@@ -357,21 +391,20 @@ export function renderCustomersPage(container) {
     const detailsHtml = `
       <div style="text-align: center; margin-bottom: 16px;">
         <div style="width: 70px; height: 70px; background: linear-gradient(135deg, var(--primary-color), var(--primary-dark)); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px; color: white; font-size: 28px; font-weight: 800; box-shadow: var(--shadow-md);">
-          ${customer.name.charAt(0)}
+          ${escapeHtml(customer.name.charAt(0))}
         </div>
         <h3 style="margin: 0; font-size: 18px;">
-          ${customer.isVip ? '👑 ' : ''}${customer.name}
+          ${customer.isVip ? '👑 ' : ''}${escapeHtml(customer.name)}
         </h3>
         ${customer.isVip ? '<span class="badge" style="background: #FFF8E1; color: #F57F17; margin-top: 6px;">VIP - عميل مميز</span>' : ''}
       </div>
 
       <div style="background: var(--bg-color); padding: 12px; border-radius: var(--radius-md); margin-bottom: 12px; font-size: 13px;">
-        ${customer.phone ? `<div style="margin-bottom: 6px;"><strong>📞 الهاتف:</strong> ${customer.phone}</div>` : ''}
-        ${customer.address ? `<div style="margin-bottom: 6px;"><strong>📍 العنوان:</strong> ${customer.address}</div>` : ''}
-        ${customer.note ? `<div><strong>📝 ملاحظات:</strong> ${customer.note}</div>` : ''}
+        ${customer.phone ? `<div style="margin-bottom: 6px;"><strong>📞 الهاتف:</strong> ${escapeHtml(customer.phone)}</div>` : ''}
+        ${customer.address ? `<div style="margin-bottom: 6px;"><strong>📍 العنوان:</strong> ${escapeHtml(customer.address)}</div>` : ''}
+        ${customer.note ? `<div><strong>📝 ملاحظات:</strong> ${escapeHtml(customer.note)}</div>` : ''}
       </div>
 
-      <!-- أزرار واتساب واتصال -->
       ${customer.phone ? `
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px;">
           <button class="btn btn-primary" id="wa-greeting-btn" style="background: #25D366;">💬 واتساب</button>
@@ -379,132 +412,4 @@ export function renderCustomersPage(container) {
         </div>
       ` : ''}
 
-      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 12px;">
-        <div style="text-align: center; padding: 8px; background: var(--bg-color); border-radius: var(--radius-md);">
-          <div style="font-size: 16px; font-weight: 800; color: var(--primary-color);">${customerOrders.length}</div>
-          <div style="font-size: 10px; color: var(--text-muted);">طلبات</div>
-        </div>
-        <div style="text-align: center; padding: 8px; background: var(--bg-color); border-radius: var(--radius-md);">
-          <div style="font-size: 14px; font-weight: 800; color: #2E7D32;">${money(totalPaid)}</div>
-          <div style="font-size: 10px; color: var(--text-muted);">مدفوع</div>
-        </div>
-        <div style="text-align: center; padding: 8px; background: var(--bg-color); border-radius: var(--radius-md);">
-          <div style="font-size: 14px; font-weight: 800; color: ${remaining > 0 ? '#dc3545' : '#2E7D32'};">${money(remaining)}</div>
-          <div style="font-size: 10px; color: var(--text-muted);">متبقي</div>
-        </div>
-      </div>
-
-      <div style="margin-bottom: 12px;">
-        <h4 style="font-size: 14px; margin-bottom: 8px; color: var(--primary-dark);">📏 المقاسات:</h4>
-        ${measurementsHtml}
-      </div>
-
-      <div style="margin-bottom: 12px;">
-        <h4 style="font-size: 14px; margin-bottom: 8px; color: var(--primary-dark);">📋 آخر الطلبات:</h4>
-        ${ordersHtml}
-      </div>
-
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
-        <button class="btn btn-primary" id="add-order-for-customer">+ طلب جديد</button>
-        <button class="btn btn-outline" id="edit-customer-details">✏️ تعديل البيانات</button>
-      </div>
-      <button class="btn btn-outline btn-full" id="close-customer-details">إغلاق</button>
-    `;
-
-    openModal(detailsHtml);
-
-    // أزرار واتساب
-    if (customer.phone) {
-      const greetingMsg = `السلام عليكم ${customer.name} 🌹\n\nمن ورشة تفصيل الجلابيب.\nكيف حالك؟ نتشرف بخدمتك في أي وقت.`;
-      
-      document.getElementById('wa-greeting-btn').addEventListener('click', () => {
-        openWhatsApp(customer.phone, greetingMsg);
-      });
-
-      const reminderMsg = remaining > 0
-        ? `السلام عليكم ${customer.name} 🌹\n\nتذكير ودّي بوجود مبلغ متبقي:\n💰 المتبقي: ${money(remaining)} جنيه\n\nنشكرك على تعاملك معنا 🌟`
-        : `السلام عليكم ${customer.name} 🌹\n\nنشكرك على سداد جميع مستحقاتك ✓\nنتشرف بخدمتك دائماً.`;
-
-      document.getElementById('wa-reminder-btn').addEventListener('click', () => {
-        openWhatsApp(customer.phone, reminderMsg);
-      });
-    }
-
-    document.getElementById('add-order-for-customer').addEventListener('click', () => {
-      closeModal();
-      setTimeout(() => {
-        toast.info(`انتقل إلى صفحة الطلبات وأضف طلباً للعميل: ${customer.name}`);
-        window.location.hash = '/orders';
-      }, 300);
-    });
-
-    document.getElementById('edit-customer-details').addEventListener('click', () => {
-      closeModal();
-      setTimeout(() => openCustomerModal(customer), 300);
-    });
-
-    document.getElementById('close-customer-details').addEventListener('click', closeModal);
-  }
-
-  // ============================================================
-  // ربط الأحداث
-  // ============================================================
-  const addBtn = container.querySelector('#add-customer-btn');
-  if (addBtn) {
-    addBtn.addEventListener('click', () => openCustomerModal(null));
-  }
-
-  const searchInput = container.querySelector('#search-input');
-  if (searchInput) {
-    searchInput.addEventListener('input', (e) => {
-      searchQuery = e.target.value;
-      const pos = e.target.selectionStart;
-      renderCustomersPage(container);
-      const newInput = container.querySelector('#search-input');
-      if (newInput) {
-        newInput.focus();
-        newInput.setSelectionRange(pos, pos);
-      }
-    });
-  }
-
-  container.querySelectorAll('.filter-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      filterMode = btn.dataset.filter;
-      renderCustomersPage(container);
-    });
-  });
-
-  container.querySelectorAll('.sort-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      sortMode = btn.dataset.sort;
-      renderCustomersPage(container);
-    });
-  });
-   
-   // زر المعاينة السريعة
-container.querySelectorAll('.preview-btn').forEach(btn => {
-  btn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    previewCustomer(btn.dataset.id);
-  });
-});
-
-  // زر واتساب في القائمة
-  container.querySelectorAll('.whatsapp-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const phone = btn.dataset.phone;
-      const name = btn.dataset.name;
-      openWhatsApp(phone, `السلام عليكم ${name} 🌹`);
-    });
-  });
-
-  // النقر على عميل → تفاصيل
-  container.querySelectorAll('.customer-item').forEach(item => {
-    item.addEventListener('click', () => {
-      const customer = db.getCustomer(item.dataset.id);
-      if (customer) openCustomerDetails(customer);
-    });
-  });
-}
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 12px
