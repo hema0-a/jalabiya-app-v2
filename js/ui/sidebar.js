@@ -62,6 +62,7 @@ export function renderSidebar() {
     {
   title: 'التحليل والتقارير',
   items: [
+    { path: '/financial-center', label: 'المركز المالي', icon: '💰' },
     { path: '/kpis', label: 'مؤشرات الأداء', icon: '📊' },
     { path: '/reports', label: 'التقارير', icon: '📈' }
   ]
