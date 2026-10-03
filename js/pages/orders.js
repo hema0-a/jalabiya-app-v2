@@ -10,6 +10,7 @@ import { openModal, closeModal } from '../ui/modal.js';
 import { today, money, formatDate, daysBetween, uid } from '../core/utils.js';
 import { printInvoice, shareInvoiceWhatsApp } from '../core/invoice.js';
 import { DEFAULT_SETTINGS } from '../core/config.js';
+import { previewOrder } from '../ui/quick-preview.js';
 import * as storage from '../core/storage.js';
 
 // حالات الطلب
@@ -279,17 +280,22 @@ export function renderOrdersPage(container) {
 
       result += `
         <div class="order-item" data-id="${o.id}" style="border: 1px solid var(--border-color); ${deadline && deadline.type === 'overdue' ? 'border-right: 4px solid #C62828;' : ''} padding: 12px; border-radius: var(--radius-md); background: var(--bg-color); cursor: pointer;">
-          <div class="flex-between" style="margin-bottom: 6px;">
-            <div style="font-weight:bold; font-size:15px;">
-              👤 ${custName}
-              ${timerActive ? '<span class="badge" style="background: #E1F5FE; color: #0277BD; margin-right: 6px;">⏱️ يعمل</span>' : ''}
-              ${summary.isMulti ? '<span class="badge" style="background: #F3E5F5; color: #6A1B9A; margin-right: 6px;">' + summary.itemsCount + ' أنواع</span>' : ''}
-              ${hasDiscount ? '<span class="badge" style="background: #FFF8E1; color: #F57F17; margin-right: 6px;">💸 خصم</span>' : ''}
-              ${hasExtraFees ? '<span class="badge" style="background: #FFF3E0; color: #E65100; margin-right: 6px;">➕ رسوم</span>' : ''}
-              ${hasImage ? '<span class="badge" style="background: #E3F2FD; color: #1565C0; margin-right: 6px;">📷</span>' : ''}
-            </div>
-            <span class="status-badge ${o.status || 'pending'}">${status.icon} ${status.label}</span>
-          </div>
+  <div class="flex-between" style="margin-bottom: 6px;">
+    <div style="font-weight:bold; font-size:15px;">
+      👤 ${custName}
+      ${timerActive ? '<span class="badge" style="background: #E1F5FE; color: #0277BD; margin-right: 6px;">⏱️ يعمل</span>' : ''}
+      ${summary.isMulti ? '<span class="badge" style="background: #F3E5F5; color: #6A1B9A; margin-right: 6px;">' + summary.itemsCount + ' أنواع</span>' : ''}
+      ${hasDiscount ? '<span class="badge" style="background: #FFF8E1; color: #F57F17; margin-right: 6px;">💸 خصم</span>' : ''}
+      ${hasExtraFees ? '<span class="badge" style="background: #FFF3E0; color: #E65100; margin-right: 6px;">➕ رسوم</span>' : ''}
+      ${hasImage ? '<span class="badge" style="background: #E3F2FD; color: #1565C0; margin-right: 6px;">📷</span>' : ''}
+    </div>
+    <div style="display: flex; gap: 4px; align-items: center;">
+      <button class="order-preview-btn" data-id="${o.id}" title="معاينة سريعة" style="background: var(--surface-color); color: var(--primary-color); border: 1px solid var(--border-color); padding: 4px 8px; border-radius: var(--radius-md); font-size: 12px; cursor: pointer; font-weight: 700; min-height: 26px;">
+        👁️
+      </button>
+      <span class="status-badge ${o.status || 'pending'}">${status.icon} ${status.label}</span>
+    </div>
+  </div>
           <div style="font-size:13px; margin-bottom: 6px;">🧵 ${summary.summary}</div>
           <div style="font-size:11px; color:var(--text-muted); margin-bottom: 4px;">📦 الكمية: ${summary.totalQty}</div>
           ${deadline ? `
@@ -1294,6 +1300,14 @@ export function renderOrdersPage(container) {
       if (order) openOrderModal(order);
     });
   });
+   
+// زر المعاينة السريعة
+container.querySelectorAll('.order-preview-btn').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    previewOrder(btn.dataset.id);
+  });
+});
 
   container.querySelectorAll('.kanban-card').forEach(card => {
     card.addEventListener('click', () => {
