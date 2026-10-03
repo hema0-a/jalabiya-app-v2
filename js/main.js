@@ -14,6 +14,7 @@ import { loadTheme } from './core/theme.js';
 import { initAuth, startIdleTimer } from './core/auth.js';
 import { initActivityLogger } from './core/activity-log.js';
 import { showDueOrdersNotification } from './core/notifications.js';
+import { initSearchShortcut } from './ui/universal-search.js';
 import { cleanOldTrashItems } from './core/trash.js';
 
 // استيراد الصفحات - العمليات
@@ -139,6 +140,8 @@ function startApp() {
 
   // تشغيل الراوتر
   router.init('.main-content');
+   // تفعيل اختصار البحث Ctrl+K
+initSearchShortcut();
 
   // بدء مؤقت القفل التلقائي
   startIdleTimer();
