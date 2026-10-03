@@ -4,11 +4,6 @@
 
 const PREFIX = 'enc:';
 
-/**
- * تشفير الرقم السري باستخدام Base64
- * @param {string} pin - الرقم السري (4 أرقام)
- * @returns {string} الرقم السري المشفر
- */
 export function encryptPin(pin) {
     try {
         return PREFIX + btoa(String(pin));
@@ -18,12 +13,6 @@ export function encryptPin(pin) {
     }
 }
 
-/**
- * فك تشفير الرقم السري
- * إذا كان النص غير مشفر (توافق مع الإصدارات السابقة) يُعاد كما هو
- * @param {string} encrypted - الرقم السري المشفر
- * @returns {string} الرقم السري الأصلي
- */
 export function decryptPin(encrypted) {
     if (typeof encrypted !== 'string') return encrypted;
     if (encrypted.startsWith(PREFIX)) {
@@ -34,5 +23,5 @@ export function decryptPin(encrypted) {
             return encrypted;
         }
     }
-    return encrypted; // نص عادي (توافق مع الإصدارات السابقة)
+    return encrypted;
 }
