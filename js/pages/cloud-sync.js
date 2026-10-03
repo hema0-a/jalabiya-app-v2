@@ -13,7 +13,9 @@ import {
   isSignedIn,
   getUserEmail,
   getSavedSession,
-  isOnline
+  isOnline,
+  isAuthReady,
+  initFirebase
 } from '../core/cloud-auth.js';
 import {
   initSync,
@@ -32,6 +34,23 @@ let statusListener = null;
    الصفحة الرئيسية
    ============================================================ */
 export function renderCloudSyncPage(container) {
+  // ✅ إظهار شاشة تحميل حتى تنتهي تهيئة Firebase
+  if (!isAuthReady()) {
+    container.innerHTML = `
+      <div class="card" style="text-align: center; padding: 60px 20px;">
+        <div style="display: inline-block; width: 40px; height: 40px; border: 3px solid var(--border-color); border-top-color: var(--primary-color); border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+        <p style="color: var(--text-muted); margin-top: 16px;">جاري التحقق من حالة تسجيل الدخول...</p>
+      </div>
+    `;
+    initFirebase()
+      .then(() => renderCloudSyncPage(container))
+      .catch(e => {
+        console.warn('فشل تهيئة Firebase في صفحة المزامنة:', e);
+        renderCloudSyncPage(container);
+      });
+    return;
+  }
+
   const signedIn = isSignedIn();
   const userEmail = getUserEmail();
   const session = getSavedSession();
