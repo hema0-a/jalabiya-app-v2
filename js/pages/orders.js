@@ -11,6 +11,7 @@ import { today, money, formatDate, daysBetween, uid } from '../core/utils.js';
 import { printInvoice, shareInvoiceWhatsApp } from '../core/invoice.js';
 import { DEFAULT_SETTINGS } from '../core/config.js';
 import { previewOrder } from '../ui/quick-preview.js';
+import { groupOrders, getGroupMeasurementsSummary, getGroupStats, getGroupingSettings } from '../core/order-grouping.js';
 import * as storage from '../core/storage.js';
 
 // حالات الطلب
@@ -32,7 +33,7 @@ const EXTRA_FEE_TYPES = [
 
 let searchQuery = '';
 let selectedStatus = 'all';
-let viewMode = 'list';
+let viewMode = 'list'; // 'list' | 'kanban' | 'grouping'
 
 /* ============================================================
    دوال مساعدة
@@ -224,10 +225,11 @@ export function renderOrdersPage(container) {
         </div>
       ` : ''}
 
-      <div class="kanban-toggle">
-        <button class="btn ${viewMode === 'list' ? 'btn-primary' : 'btn-outline'}" id="view-list-btn">📋 قائمة</button>
-        <button class="btn ${viewMode === 'kanban' ? 'btn-primary' : 'btn-outline'}" id="view-kanban-btn">🎯 كانبان</button>
-      </div>
+      <div class="kanban-toggle" style="flex-wrap: wrap;">
+  <button class="btn ${viewMode === 'list' ? 'btn-primary' : 'btn-outline'}" id="view-list-btn">📋 قائمة</button>
+  <button class="btn ${viewMode === 'kanban' ? 'btn-primary' : 'btn-outline'}" id="view-kanban-btn">🎯 كانبان</button>
+  <button class="btn ${viewMode === 'grouping' ? 'btn-primary' : 'btn-outline'}" id="view-grouping-btn" style="font-size: 12px;">🧵 تجميع</button>
+</div>
 
       <div class="form-group" style="margin-bottom: 10px;">
         <input type="text" id="search-order-input" class="form-control" placeholder="🔍 ابحث باسم العميل أو نوع الجلابية..." value="${searchQuery}">
@@ -246,10 +248,12 @@ export function renderOrdersPage(container) {
   `;
 
   if (viewMode === 'list') {
-    html += renderListView(filteredOrders, customers);
-  } else {
-    html += renderKanbanView(allOrders, customers);
-  }
+  html += renderListView(filteredOrders, customers);
+} else if (viewMode === 'kanban') {
+  html += renderKanbanView(allOrders, customers);
+} else if (viewMode === 'grouping') {
+  html += renderGroupingView();
+}
 
   html += `</div>`;
   container.innerHTML = html;
@@ -313,6 +317,132 @@ export function renderOrdersPage(container) {
     result += `</div>`;
     return result;
   }
+/* ============================================================
+   عرض التجميع (Grouping View)
+   ============================================================ */
+function renderGroupingView() {
+  const settings = getGroupingSettings();
+  
+  // إذا كان التجميع معطّلاً
+  if (!settings.enabled) {
+    return `
+      <div class="card" style="text-align: center; padding: 24px; background: #FFF3E0; border: none;">
+        <div style="font-size: 40px; margin-bottom: 8px;">🧵</div>
+        <h3 style="font-size: 16px; margin-bottom: 8px;">تجميع القياسات غير مفعّل</h3>
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
+          لتفعيل هذه الميزة، اذهب إلى الإعدادات وفعّل "تجميع الطلبات المتشابهة".
+        </p>
+        <a href="#/settings" class="btn btn-primary" style="text-decoration: none;">⚙️ فتح الإعدادات</a>
+      </div>
+    `;
+  }
+  
+  const result = groupOrders();
+  
+  // إذا لا توجد مجموعات
+  if (result.totalGroups === 0) {
+    return `
+      <div class="empty-state">
+        <div class="empty-state-icon">🧵</div>
+        <p>لا توجد طلبات قابلة للتجميع حالياً.</p>
+        <p style="font-size: 12px; color: var(--text-muted); margin-top: 8px;">
+          السبب: القياسات غير متقاربة أو لا توجد طلبات نشطة بقياسات محفوظة.
+        </p>
+      </div>
+    `;
+  }
+  
+  // عرض المجموعات
+  let html = `
+    <div style="background: linear-gradient(135deg, var(--primary-color), var(--primary-dark)); color: white; padding: 12px; border-radius: var(--radius-md); margin-bottom: 16px;">
+      <div class="flex-between">
+        <div>
+          <div style="font-size: 12px; opacity: 0.85;">🧵 مجموعات قابلة للتجميع</div>
+          <div style="font-size: 22px; font-weight: 800; margin-top: 2px;">${result.totalGroups} مجموعة</div>
+        </div>
+        <div style="text-align: left;">
+          <div style="font-size: 12px; opacity: 0.85;">إجمالي الطلبات</div>
+          <div style="font-size: 22px; font-weight: 800; margin-top: 2px;">${result.totalGroupedOrders}</div>
+        </div>
+      </div>
+      <div style="font-size: 11px; opacity: 0.8; margin-top: 6px;">
+        📏 نسبة التقارب: ${settings.tolerance} سم
+      </div>
+    </div>
+  `;
+  
+  result.groups.forEach((group, idx) => {
+    const summary = getGroupMeasurementsSummary(group);
+    const stats = getGroupStats(group);
+    
+    // عرض نطاق القياسات
+    let measHtml = '';
+    Object.keys(summary).forEach(fieldId => {
+      const m = summary[fieldId];
+      measHtml += `
+        <div style="display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; border-bottom: 1px dashed var(--border-color);">
+          <span style="color: var(--text-muted);">${m.label}:</span>
+          <span style="font-weight: 600;">
+            ${m.min} - ${m.max} سم
+            ${m.range === 0 ? '<span style="color: #2E7D32; font-size: 10px;">(متطابق)</span>' : ''}
+          </span>
+        </div>
+      `;
+    });
+    
+    // عرض الطلبات في المجموعة
+    const itemsHtml = group.items.map(item => {
+      const statusColors = { pending: '#FFA726', in_progress: '#29B6F6', ready: '#AB47BC', delivered: '#66BB6A' };
+      const status = item.order.status || 'pending';
+      const orderSummary = getOrderSummary(item.order);
+      return `
+        <div class="group-order-item" data-id="${item.order.id}" style="display: flex; align-items: center; gap: 8px; padding: 8px; background: var(--surface-color); border-radius: var(--radius-md); border-right: 3px solid ${statusColors[status]}; cursor: pointer; margin-bottom: 4px;">
+          <span style="font-size: 16px;">👤</span>
+          <div style="flex: 1; min-width: 0;">
+            <div style="font-weight: 600; font-size: 13px;">${item.customer ? item.customer.name : 'عميل محذوف'}</div>
+            <div style="font-size: 11px; color: var(--text-muted);">${orderSummary.summary.length > 25 ? orderSummary.summary.slice(0, 25) + '...' : orderSummary.summary}</div>
+          </div>
+          <span style="font-size: 12px; font-weight: 700; color: var(--primary-color);">${money(item.order.totalPrice)} ج</span>
+        </div>
+      `;
+    }).join('');
+    
+    html += `
+      <div class="card" style="margin-bottom: 12px; border-right: 4px solid var(--accent-color);">
+        <div class="flex-between" style="margin-bottom: 10px;">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span style="font-size: 20px;">🧵</span>
+            <div>
+              <div style="font-weight: 800; font-size: 14px;">مجموعة ${idx + 1} — ${group.items.length} طلبات</div>
+              <div style="font-size: 11px; color: var(--text-muted);">${group.garmentType || 'نوع عام'}</div>
+            </div>
+          </div>
+          <div style="text-align: left; font-size: 11px;">
+            <div style="color: var(--text-muted);">الكمية الكلية</div>
+            <div style="font-weight: 800; color: var(--accent-color); font-size: 14px;">${stats.totalQuantity} قطعة</div>
+          </div>
+        </div>
+        
+        <div style="background: var(--bg-color); padding: 8px 12px; border-radius: var(--radius-md); margin-bottom: 10px;">
+          <div style="font-size: 12px; font-weight: 700; color: var(--primary-dark); margin-bottom: 6px;">📏 نطاق القياسات:</div>
+          ${measHtml || '<div style="font-size: 12px; color: var(--text-muted);">لا توجد قياسات مفصّلة</div>'}
+        </div>
+        
+        <div style="margin-bottom: 10px;">
+          <div style="font-size: 12px; font-weight: 700; color: var(--primary-dark); margin-bottom: 6px;">📋 الطلبات في المجموعة:</div>
+          ${itemsHtml}
+        </div>
+        
+        <div style="display: flex; justify-content: space-between; padding-top: 8px; border-top: 1px solid var(--border-color); font-size: 12px;">
+          <span style="color: var(--text-muted);">💰 إجمالي القيمة:</span>
+          <strong style="color: var(--primary-color);">${money(stats.totalValue)} جنيه</strong>
+        </div>
+      </div>
+    `;
+  });
+  
+  return html;
+}
 
   function renderKanbanView(orders, customers) {
     let result = `<div class="kanban-board">`;
@@ -1278,7 +1408,10 @@ export function renderOrdersPage(container) {
 
   container.querySelector('#view-list-btn').addEventListener('click', () => { viewMode = 'list'; renderOrdersPage(container); });
   container.querySelector('#view-kanban-btn').addEventListener('click', () => { viewMode = 'kanban'; renderOrdersPage(container); });
-
+const groupingBtn = container.querySelector('#view-grouping-btn');
+if (groupingBtn) {
+  groupingBtn.addEventListener('click', () => { viewMode = 'grouping'; renderOrdersPage(container); });
+}
   const searchInput = container.querySelector('#search-order-input');
   if (searchInput) {
     searchInput.addEventListener('input', (e) => {
@@ -1293,7 +1426,16 @@ export function renderOrdersPage(container) {
   container.querySelectorAll('.status-filter-btn').forEach(btn => {
     btn.addEventListener('click', () => { selectedStatus = btn.dataset.status; renderOrdersPage(container); });
   });
+// النقر على طلب داخل مجموعة التجميع
+container.querySelectorAll('.group-order-item').forEach(item => {
+  item.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const order = db.getOrder(item.dataset.id);
+    if (order) openOrderModal(order);
+  });
+});
 
+   
   container.querySelectorAll('.order-item').forEach(item => {
     item.addEventListener('click', () => {
       const order = db.getOrder(item.dataset.id);
