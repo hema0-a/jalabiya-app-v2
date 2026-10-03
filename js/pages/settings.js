@@ -118,6 +118,34 @@ export function renderSettingsPage(container) {
         </a>
       </div>
 
+<!-- ============================================================
+     الرسائل التلقائية للعملاء
+     ============================================================ -->
+<div class="card" style="background: linear-gradient(135deg, #E3F2FD, #BBDEFB); border: none; margin-bottom: 16px;">
+  <div class="flex-between" style="margin-bottom: 12px;">
+    <h3 style="font-size: 16px; margin: 0;">💬 الرسائل التلقائية</h3>
+    <span class="badge" style="background: var(--info-color, #1565C0); color: white;">واتساب</span>
+  </div>
+  <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
+    أرسل رسائل جاهزة للعملاء عبر واتساب عند تغيير حالة الطلب (تأكيد الطلب، بدء التنفيذ، جاهز للتسليم، شكر بعد التسليم).
+  </p>
+
+  <div style="background: white; padding: 10px 12px; border-radius: var(--radius-md); margin-bottom: 12px;">
+    <div style="font-size: 12px; font-weight: 700; color: #1565C0; margin-bottom: 6px;">📋 القوالب المتاحة:</div>
+    <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+      <span style="background: #E3F2FD; color: #1565C0; padding: 4px 10px; border-radius: var(--radius-full); font-size: 11px; font-weight: 700;">📋 تأكيد الطلب</span>
+      <span style="background: #E3F2FD; color: #1565C0; padding: 4px 10px; border-radius: var(--radius-full); font-size: 11px; font-weight: 700;">🧵 بدء التنفيذ</span>
+      <span style="background: #E3F2FD; color: #1565C0; padding: 4px 10px; border-radius: var(--radius-full); font-size: 11px; font-weight: 700;">✅ جاهز للتسليم</span>
+      <span style="background: #E3F2FD; color: #1565C0; padding: 4px 10px; border-radius: var(--radius-full); font-size: 11px; font-weight: 700;">🙏 شكر</span>
+      <span style="background: #E3F2FD; color: #1565C0; padding: 4px 10px; border-radius: var(--radius-full); font-size: 11px; font-weight: 700;">💰 تذكير بالدفع</span>
+      <span style="background: #E3F2FD; color: #1565C0; padding: 4px 10px; border-radius: var(--radius-full); font-size: 11px; font-weight: 700;">🎉 تهنئة مناسبة</span>
+    </div>
+  </div>
+
+  <a href="#/auto-messages-settings" class="btn btn-primary btn-full" style="text-decoration: none; display: block; text-align: center; background: linear-gradient(135deg, #1565C0, #0D47A1);">
+    💬 إدارة الرسائل التلقائية
+  </a>
+</div>
       <!-- ============================================================
            تخصيص الألوان
            ============================================================ -->
