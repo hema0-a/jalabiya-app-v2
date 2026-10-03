@@ -1,30 +1,20 @@
 /* ============================================================
    settings.js - صفحة الإعدادات الشاملة (V2)
-   (النسخة الكاملة: معلومات + ألوان + ثيمات + خلفيات + أيقونات
-    + خطوط + أوضاع عرض + أمان + نسخ احتياطي + منطقة خطر)
+   (النسخة الكاملة مع المواسم والأعياد)
    ============================================================ */
 
 import * as db from '../core/db.js';
 import { toast } from '../ui/toast.js';
 import {
-  saveTheme,
-  setDisplayMode,
-  applyDisplayModes,
-  applyThemePreset,
-  saveFontSettings,
-  resetFontSettings,
-  saveBackground,
-  saveIconStyle,
-  THEME_PRESETS,
-  BACKGROUNDS,
-  ICON_STYLES,
-  FONT_FAMILIES,
-  FONT_SIZES
+  saveTheme, setDisplayMode, applyDisplayModes, applyThemePreset,
+  saveFontSettings, resetFontSettings, saveBackground, saveIconStyle,
+  THEME_PRESETS, BACKGROUNDS, ICON_STYLES, FONT_FAMILIES, FONT_SIZES
 } from '../core/theme.js';
 import { changePin } from '../core/auth.js';
 import { APP_CONFIG, DEFAULT_SETTINGS } from '../core/config.js';
 import * as storage from '../core/storage.js';
-import { escapeHtml } from '../core/utils.js';
+import { escapeHtml, formatDate } from '../core/utils.js';
+import { getOccasionsStats, getOccasionIcon, getTimeUntilOccasion } from '../core/occasions.js';
 
 export function renderSettingsPage(container) {
   const settings = storage.loadSettings() || { ...DEFAULT_SETTINGS };
@@ -40,6 +30,9 @@ export function renderSettingsPage(container) {
   const lockShowLogo = settings.lockScreenShowLogo !== false;
   const currentBackground = settings.background || 'none';
   const currentIconStyle = settings.iconStyle || 'default';
+  const fabricPickupAlertDays = settings.fabricPickupAlertDays || 2;
+  const occasionsAlertEnabled = settings.occasionsAlertEnabled !== false;
+  const occasionsStats = getOccasionsStats();
 
   container.innerHTML = `
     <div class="card">
@@ -77,6 +70,55 @@ export function renderSettingsPage(container) {
       </div>
 
       <!-- ============================================================
+           المواسم والأعياد (جديد)
+           ============================================================ -->
+      <div class="card" style="background: linear-gradient(135deg, #FFF8E1, #FFECB3); border: none; margin-bottom: 16px;">
+        <div class="flex-between" style="margin-bottom: 12px;">
+          <h3 style="font-size: 16px; margin: 0;">🎉 المواسم والأعياد</h3>
+          <span class="badge" style="background: var(--accent-color); color: white;">${occasionsStats.enabled} مفعّلة</span>
+        </div>
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
+          تسجيل المواسم والأعياد (رمضان، عيد الفطر، المولد...) لتنبيهك قبلها استعداداً للطلبات.
+        </p>
+
+        ${occasionsStats.next ? `
+          <div style="background: white; padding: 10px 12px; border-radius: var(--radius-md); margin-bottom: 12px;">
+            <div class="flex-between">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <div style="font-size: 22px;">${getOccasionIcon(occasionsStats.next)}</div>
+                <div>
+                  <div style="font-size: 11px; color: var(--text-muted);">🎯 المناسبة القادمة</div>
+                  <div style="font-weight: 800; font-size: 14px;">${escapeHtml(occasionsStats.next.name)}</div>
+                </div>
+              </div>
+              <div style="text-align: left; font-size: 11px;">
+                <div style="color: var(--accent-color); font-weight: 700;">${getTimeUntilOccasion(occasionsStats.next)}</div>
+                <div style="color: var(--text-muted); margin-top: 2px;">${formatDate(occasionsStats.next.nextDate)}</div>
+              </div>
+            </div>
+          </div>
+        ` : ''}
+
+        ${occasionsStats.alertCount > 0 ? `
+          <div style="background: #FFEBEE; border-right: 4px solid #C62828; padding: 8px 12px; border-radius: var(--radius-md); margin-bottom: 12px; font-size: 12px; color: #B71C1C;">
+            🚨 <strong>${occasionsStats.alertCount}</strong> مناسبة تحتاج انتباهك الآن!
+          </div>
+        ` : ''}
+
+        <label style="display: flex; align-items: center; justify-content: space-between; padding: 10px; background: white; border-radius: var(--radius-md); cursor: pointer; margin-bottom: 12px;">
+          <span>
+            <strong>🔔 تفعيل تنبيهات المواسم</strong>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">عرض التنبيهات في الصفحة الرئيسية</div>
+          </span>
+          <input type="checkbox" id="occasions-alert-enabled" ${occasionsAlertEnabled ? 'checked' : ''} style="width: 22px; height: 22px; cursor: pointer;">
+        </label>
+
+        <a href="#/occasions" class="btn btn-primary btn-full" style="text-decoration: none; display: block; text-align: center;">
+          🎉 إدارة المواسم والأعياد
+        </a>
+      </div>
+
+      <!-- ============================================================
            تخصيص الألوان
            ============================================================ -->
       <div class="card" style="background: var(--bg-color); border: none; margin-bottom: 16px;">
@@ -102,13 +144,10 @@ export function renderSettingsPage(container) {
       </div>
 
       <!-- ============================================================
-           الثيمات الجاهزة (9 ثيمات)
+           الثيمات الجاهزة
            ============================================================ -->
       <div class="card" style="background: var(--bg-color); border: none; margin-bottom: 16px;">
         <h3 style="font-size: 16px; margin-bottom: 12px;">🎨 الثيمات الجاهزة</h3>
-        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
-          اختر ثيماً جاهزاً بضغطة واحدة، وسيتم تطبيقه على التطبيق بالكامل.
-        </p>
         <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
           ${Object.keys(THEME_PRESETS).map(key => {
             const t = THEME_PRESETS[key];
@@ -131,9 +170,6 @@ export function renderSettingsPage(container) {
            ============================================================ -->
       <div class="card" style="background: var(--bg-color); border: none; margin-bottom: 16px;">
         <h3 style="font-size: 16px; margin-bottom: 12px;">🖼️ الخلفيات الإبداعية</h3>
-        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
-          اختر خلفية مبدعة لشاشات التطبيق.
-        </p>
         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
           ${Object.keys(BACKGROUNDS).map(key => {
             const bg = BACKGROUNDS[key];
@@ -153,9 +189,6 @@ export function renderSettingsPage(container) {
            ============================================================ -->
       <div class="card" style="background: var(--bg-color); border: none; margin-bottom: 16px;">
         <h3 style="font-size: 16px; margin-bottom: 12px;">🎯 أنماط الأيقونات</h3>
-        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
-          اختر نمط شكل الأيقونات في القائمة الجانبية.
-        </p>
         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
           ${Object.keys(ICON_STYLES).map(key => {
             const style = ICON_STYLES[key];
@@ -250,23 +283,25 @@ export function renderSettingsPage(container) {
       </div>
 
       <!-- ============================================================
-           الحد اليومي للطلبات
+           الحد اليومي للطلبات + مواعيد استلام القماش
            ============================================================ -->
       <div class="card" style="background: var(--bg-color); border: none; margin-bottom: 16px;">
-        <h3 style="font-size: 16px; margin-bottom: 12px;">📊 الحد اليومي للطلبات</h3>
-        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
-          تحديد الحد الأقصى لقيمة الطلبات اليومية. سيظهر تنبيه عند تجاوز هذا الحد.
-        </p>
+        <h3 style="font-size: 16px; margin-bottom: 12px;">📊 الحد اليومي والتنبيهات</h3>
 
         <div class="form-group">
-          <label>الحد اليومي (بالجنيه) *</label>
+          <label>الحد اليومي للطلبات (بالجنيه) *</label>
           <input type="number" id="daily-limit" class="form-control" value="${dailyLimit}" min="0" step="50">
+        </div>
+
+        <div class="form-group">
+          <label>تنبيه استلام القماش (قبل كم يوم؟)</label>
+          <input type="number" id="fabric-pickup-days" class="form-control" value="${fabricPickupAlertDays}" min="1" max="14">
           <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
-            💡 مثال: 700 جنيه يومياً.
+            💡 ينبّهك التطبيق قبل موعد استلام القماش بهذه المدة.
           </div>
         </div>
 
-        <button class="btn btn-primary btn-full" id="save-daily-limit-btn">حفظ الحد اليومي</button>
+        <button class="btn btn-primary btn-full" id="save-daily-limit-btn">حفظ الإعدادات</button>
       </div>
 
       <!-- ============================================================
@@ -274,9 +309,6 @@ export function renderSettingsPage(container) {
            ============================================================ -->
       <div class="card" style="background: var(--bg-color); border: none; margin-bottom: 16px;">
         <h3 style="font-size: 16px; margin-bottom: 12px;">🧵 تجميع الطلبات المتشابهة</h3>
-        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
-          تجميع تلقائي للطلبات ذات القياسات المتقاربة.
-        </p>
 
         <label style="display: flex; align-items: center; justify-content: space-between; cursor: pointer; padding: 10px; background: var(--surface-color); border-radius: var(--radius-md); border: 1px solid var(--border-color); margin-bottom: 12px;">
           <span>
@@ -434,6 +466,19 @@ export function renderSettingsPage(container) {
   });
 
   /* ============================================================
+     المواسم
+     ============================================================ */
+  const occasionsToggle = container.querySelector('#occasions-alert-enabled');
+  if (occasionsToggle) {
+    occasionsToggle.addEventListener('change', (e) => {
+      let s = storage.loadSettings() || { ...DEFAULT_SETTINGS };
+      s.occasionsAlertEnabled = e.target.checked;
+      storage.saveSettings(s);
+      toast.success(e.target.checked ? 'تم تفعيل تنبيهات المواسم' : 'تم إلغاء تنبيهات المواسم');
+    });
+  }
+
+  /* ============================================================
      الألوان
      ============================================================ */
   container.querySelector('#save-theme-btn').addEventListener('click', () => {
@@ -455,7 +500,7 @@ export function renderSettingsPage(container) {
   });
 
   /* ============================================================
-     الثيمات الجاهزة
+     الثيمات
      ============================================================ */
   container.querySelectorAll('.theme-preset-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -471,7 +516,7 @@ export function renderSettingsPage(container) {
   });
 
   /* ============================================================
-     الخلفيات الإبداعية
+     الخلفيات
      ============================================================ */
   container.querySelectorAll('.bg-select-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -542,20 +587,24 @@ export function renderSettingsPage(container) {
   });
 
   /* ============================================================
-     الحد اليومي
+     الحد اليومي + استلام القماش
      ============================================================ */
   const saveDailyLimitBtn = container.querySelector('#save-daily-limit-btn');
   if (saveDailyLimitBtn) {
     saveDailyLimitBtn.addEventListener('click', () => {
       const value = parseFloat(document.getElementById('daily-limit').value);
+      const fabricDays = parseInt(document.getElementById('fabric-pickup-days').value) || 2;
+
       if (isNaN(value) || value < 0) {
         toast.error('الرجاء إدخال قيمة صحيحة');
         return;
       }
+
       let s = storage.loadSettings() || { ...DEFAULT_SETTINGS };
       s.dailyOrderLimit = value;
+      s.fabricPickupAlertDays = fabricDays;
       storage.saveSettings(s);
-      toast.success('تم حفظ الحد اليومي بنجاح');
+      toast.success('تم حفظ الإعدادات بنجاح');
     });
   }
 
@@ -594,10 +643,9 @@ export function renderSettingsPage(container) {
   }
 
   /* ============================================================
-     تخصيص شاشة القفل
+     شاشة القفل
      ============================================================ */
   let tempLockBg = lockBg;
-
   const lockBgFile = container.querySelector('#lock-bg-file');
   const lockBgPreview = container.querySelector('#lock-bg-preview');
 
@@ -609,13 +657,11 @@ export function renderSettingsPage(container) {
     lockBgFile.addEventListener('change', (e) => {
       const file = e.target.files[0];
       if (!file) return;
-
       const sizeKB = file.size / 1024;
       if (sizeKB > 800) {
         toast.error('حجم الصورة كبير جداً. الحد الأقصى 800KB');
         return;
       }
-
       const reader = new FileReader();
       reader.onload = (event) => {
         tempLockBg = event.target.result;
