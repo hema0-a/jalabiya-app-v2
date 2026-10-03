@@ -6,16 +6,30 @@
   <meta name="theme-color" content="#1F6D57">
   <meta name="description" content="تطبيق إدارة ورشة تفصيل الجلابيب">
   <title>ورشة تفصيل الجلابيب — V2.0</title>
-  
+
+  <!-- ============================================================
+       PWA Manifest
+       ============================================================ -->
+  <link rel="manifest" href="manifest.json">
+
+  <!-- أيقونات iOS (Apple) -->
+  <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='38' fill='%231F6D57'/%3E%3Ctext x='90' y='125' font-size='100' text-anchor='middle' fill='white' font-family='Arial'%3E%F0%9F%A7%B5%3C/text%3E%3C/svg%3E">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="ورشة الجلابيب">
+
+  <!-- ============================================================
+       روابط ملفات التنسيق (CSS)
+       ============================================================ -->
   <link rel="stylesheet" href="css/main.css">
   <link rel="stylesheet" href="css/themes.css">
   <link rel="stylesheet" href="css/components.css">
   <link rel="stylesheet" href="css/kanban.css">
-  
+
+  <!-- ============================================================
+       معالج الأخطاء - يعرض أي خطأ على الشاشة مباشرة
+       ============================================================ -->
   <script>
-    // ============================================================
-    // معالج الأخطاء - يعرض أي خطأ على الشاشة مباشرة
-    // ============================================================
     window.addEventListener('error', function(e) {
       var app = document.getElementById('app');
       if (app && app.querySelector('.loading-screen')) {
@@ -32,7 +46,7 @@
         '</div>';
       }
     }, true);
-    
+
     window.addEventListener('unhandledrejection', function(e) {
       var app = document.getElementById('app');
       if (app && app.querySelector('.loading-screen')) {
@@ -45,15 +59,14 @@
         '</div>';
       }
     });
-    
-    // مؤقت احتياطي: إذا لم يبدأ التطبيق خلال 8 ثوانٍ
+
+    // مؤقت احتياطي
     setTimeout(function() {
       var app = document.getElementById('app');
       if (app && app.querySelector('.loading-screen')) {
         app.innerHTML = '<div style="padding:20px; font-family:sans-serif; direction:rtl; text-align:center;">' +
           '<h2 style="color:#c00;">⚠️ التطبيق لا يستجيب</h2>' +
           '<p style="margin-top:12px;">لم يتم تحميل التطبيق خلال 8 ثوانٍ.</p>' +
-          '<p style="color:#666; font-size:12px; margin-top:8px;">يوجد خطأ في أحد ملفات JavaScript، لكنه لم يُلتقط. تحقق من سجل GitHub Actions.</p>' +
           '<button onclick="location.reload()" style="padding:12px 24px; margin-top:16px; background:#1F6D57; color:white; border:none; border-radius:8px; font-size:14px; cursor:pointer;">إعادة التحميل</button>' +
         '</div>';
       }
@@ -67,7 +80,61 @@
       <p>جاري تحميل التطبيق...</p>
     </div>
   </div>
-  
+
+  <!-- ============================================================
+       نقطة الدخول (ES6 Module)
+       ============================================================ -->
   <script type="module" src="js/main.js"></script>
+
+  <!-- ============================================================
+       تسجيل Service Worker (PWA)
+       ============================================================ -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js', { scope: './' })
+          .then((registration) => {
+            console.log('✅ [PWA] Service Worker registered:', registration.scope);
+
+            // فحص التحديثات
+            registration.addEventListener('updatefound', () => {
+              const newWorker = registration.installing;
+              console.log('🔄 [PWA] New Service Worker found');
+
+              newWorker.addEventListener('statechange', () => {
+                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                  console.log('🎉 [PWA] New version available! Reload to update.');
+                }
+              });
+            });
+          })
+          .catch((error) => {
+            console.warn('⚠️ [PWA] Service Worker registration failed:', error);
+          });
+      });
+    }
+
+    // عرض زر التثبيت المخصص (اختياري)
+    let deferredPrompt = null;
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      console.log('📱 [PWA] Install prompt available');
+
+      // يمكن استخدام deferredPrompt.prompt() عند الضغط على زر مخصص
+      window.__installPWA = async () => {
+        if (!deferredPrompt) return;
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        console.log('📱 [PWA] Install outcome:', outcome);
+        deferredPrompt = null;
+      };
+    });
+
+    window.addEventListener('appinstalled', () => {
+      console.log('✅ [PWA] App installed successfully');
+      deferredPrompt = null;
+    });
+  </script>
 </body>
 </html>
