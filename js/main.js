@@ -46,6 +46,7 @@ import { renderTrashPage } from './pages/trash.js';
 // استيراد الصفحات - التقارير والإعدادات
 import { renderReportsPage } from './pages/reports.js';
 import { renderKpisPage } from './pages/kpis.js';
+import { renderFinancialCenterPage } from './pages/financial-center.js';
 import { renderSettingsPage } from './pages/settings.js';
 import { renderCloudSyncPage } from './pages/cloud-sync.js';
 import { initSync, syncNow } from './core/sync.js';
@@ -135,6 +136,7 @@ function startApp() {
   router.register('/trash', renderTrashPage);
   
   // التقارير والإعدادات
+   router.register('/financial-center', renderFinancialCenterPage);
    router.register('/kpis', renderKpisPage);
   router.register('/reports', renderReportsPage);
    router.register('/cloud-sync', renderCloudSyncPage);
