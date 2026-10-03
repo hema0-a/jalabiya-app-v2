@@ -38,22 +38,23 @@ export async function initFirebase() {
       authInstance = getAuth(firebaseApp);
 
       // الاستماع لحالة المصادقة
-      onAuthStateChanged(authInstance, (user) => {
-        currentUser = user;
-        if (user) {
-          console.log('✅ [CloudAuth] مستخدم مسجّل:', user.email);
-          saveSession({ uid: user.uid, email: user.email });
-          events.emit('cloud:auth:signin', { uid: user.uid, email: user.email });
-        } else {
-          console.log('⚠️ [CloudAuth] لا يوجد مستخدم مسجّل');
-          clearSession();
-          events.emit('cloud:auth:signout');
-        }
-      });
+onAuthStateChanged(authInstance, (user) => {
+  currentUser = user;
+  authReady = true; // ✅ التصحيح: الانتظار حتى وصول حالة المستخدم الفعلية
+  if (user) {
+    console.log('✅ [CloudAuth] مستخدم مسجّل:', user.email);
+    saveSession({ uid: user.uid, email: user.email });
+    events.emit('cloud:auth:signin', { uid: user.uid, email: user.email });
+  } else {
+    console.log('⚠️ [CloudAuth] لا يوجد مستخدم مسجّل');
+    clearSession();
+    events.emit('cloud:auth:signout');
+  }
+});
 
-      authReady = true;
-      console.log('✅ [CloudAuth] Firebase جاهز');
-      return { app: firebaseApp, auth: authInstance };
+// ✅ لا نضع authReady هنا، بل ننتظر onAuthStateChanged
+console.log('⏳ [CloudAuth] في انتظار حالة المصادقة...');
+return { app: firebaseApp, auth: authInstance };
     } catch (e) {
       console.error('❌ [CloudAuth] فشل تهيئة Firebase:', e);
       initPromise = null;
@@ -157,6 +158,10 @@ export function getCurrentUser() {
 
 export function isSignedIn() {
   return !!currentUser;
+}
+
+export function isAuthReady() {
+  return authReady;
 }
 
 export function getUserId() {
