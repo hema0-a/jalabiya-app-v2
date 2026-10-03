@@ -19,6 +19,9 @@ export function renderSettingsPage(container) {
   const referralPercent = settings.referralRewardPercent || 5;
    const dailyLimit = settings.dailyOrderLimit || 700;
    const groupingEnabled = settings.enableMeasurementGrouping === true;
+   const lockBg = settings.lockScreenBackground || null;
+const lockMsg = settings.lockScreenMessage || 'أدخل الرقم السري للدخول';
+const lockShowLogo = settings.lockScreenShowLogo !== false;
 const groupingTolerance = settings.measurementTolerance || 2;
 const groupByGarmentType = settings.groupByGarmentType !== false;
 
@@ -56,6 +59,47 @@ const groupByGarmentType = settings.groupByGarmentType !== false;
         
         <button class="btn btn-primary btn-full" id="save-info-btn">حفظ المعلومات</button>
       </div>
+<!-- ============================================================
+     تخصيص شاشة القفل (جديد)
+     ============================================================ -->
+<div class="card" style="background: var(--bg-color); border: none; margin-bottom: 16px;">
+  <h3 style="font-size: 16px; margin-bottom: 12px;">🔒 تخصيص شاشة القفل</h3>
+  <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
+    خصص شكل شاشة القفل بصورة خلفية ورسالة ترحيبية مخصصة.
+  </p>
+
+  <!-- صورة الخلفية -->
+  <div class="form-group">
+    <label>صورة الخلفية (اختياري)</label>
+    <div style="text-align: center; margin-bottom: 10px;">
+      <div id="lock-bg-preview" style="width: 100%; height: 120px; border-radius: var(--radius-md); border: 2px dashed var(--border-color); background: linear-gradient(135deg, #1F6D57, #123C2F) center/cover no-repeat; display: flex; align-items: center; justify-content: center; color: white; font-size: 12px;">
+        ${lockBg ? '' : 'لا توجد صورة'}
+      </div>
+      ${lockBg ? `<button type="button" class="btn btn-danger btn-full mt-2" id="remove-lock-bg-btn">🗑️ حذف الصورة</button>` : ''}
+    </div>
+    <label for="lock-bg-file" class="btn btn-outline btn-full" style="cursor: pointer; text-align: center; display: block;">
+      🖼️ اختر صورة
+    </label>
+    <input type="file" id="lock-bg-file" accept="image/*" style="display: none;">
+  </div>
+
+  <!-- رسالة الترحيب -->
+  <div class="form-group">
+    <label>الرسالة الترحيبية</label>
+    <input type="text" id="lock-message" class="form-control" value="${lockMsg}" placeholder="أدخل الرقم السري للدخول">
+  </div>
+
+  <!-- إظهار الشعار -->
+  <label style="display: flex; align-items: center; justify-content: space-between; padding: 10px; background: var(--surface-color); border-radius: var(--radius-md); border: 1px solid var(--border-color); cursor: pointer; margin-bottom: 12px;">
+    <span>
+      <strong>إظهار الشعار</strong>
+      <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">عرض شعار الورشة في وسط شاشة القفل</div>
+    </span>
+    <input type="checkbox" id="lock-show-logo" ${lockShowLogo ? 'checked' : ''} style="width: 22px; height: 22px; cursor: pointer;">
+  </label>
+
+  <button class="btn btn-primary btn-full" id="save-lock-screen-btn">حفظ إعدادات شاشة القفل</button>
+</div>
 <!-- ============================================================
      الحد اليومي للطلبات (جديد)
      ============================================================ -->
@@ -307,6 +351,68 @@ if (saveDailyLimitBtn) {
     toast.success('تم حفظ الحد اليومي بنجاح');
   });
 }
+   // ============================================================
+// تخصيص شاشة القفل
+// ============================================================
+let tempLockBg = lockBg;
+
+const lockBgFile = container.querySelector('#lock-bg-file');
+const lockBgPreview = container.querySelector('#lock-bg-preview');
+
+if (lockBg) {
+  lockBgPreview.style.backgroundImage = `linear-gradient(rgba(0,0,0,0.4), rgba(0,0,0,0.5)), url('${lockBg}')`;
+}
+
+if (lockBgFile) {
+  lockBgFile.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    const sizeKB = file.size / 1024;
+    if (sizeKB > 800) {
+      toast.error('حجم الصورة كبير جداً. الحد الأقصى 800KB');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      tempLockBg = event.target.result;
+      lockBgPreview.style.backgroundImage = `linear-gradient(rgba(0,0,0,0.4), rgba(0,0,0,0.5)), url('${tempLockBg}')`;
+      lockBgPreview.textContent = '';
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+const removeLockBgBtn = container.querySelector('#remove-lock-bg-btn');
+if (removeLockBgBtn) {
+  removeLockBgBtn.addEventListener('click', () => {
+    if (confirm('هل تريد حذف صورة خلفية شاشة القفل؟')) {
+      let s = storage.loadSettings() || { ...DEFAULT_SETTINGS };
+      s.lockScreenBackground = null;
+      storage.saveSettings(s);
+      toast.success('تم حذف الصورة');
+      renderSettingsPage(container);
+    }
+  });
+}
+
+const saveLockBtn = container.querySelector('#save-lock-screen-btn');
+if (saveLockBtn) {
+  saveLockBtn.addEventListener('click', () => {
+    const msg = container.querySelector('#lock-message').value.trim() || 'أدخل الرقم السري للدخول';
+    const showLogo = container.querySelector('#lock-show-logo').checked;
+    
+    let s = storage.loadSettings() || { ...DEFAULT_SETTINGS };
+    s.lockScreenBackground = tempLockBg;
+    s.lockScreenMessage = msg;
+    s.lockScreenShowLogo = showLogo;
+    storage.saveSettings(s);
+    
+    toast.success('تم حفظ إعدادات شاشة القفل بنجاح');
+  });
+}
+
 // ============================================================
 // تجميع القياسات
 // ============================================================
