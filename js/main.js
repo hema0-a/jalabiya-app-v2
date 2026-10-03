@@ -1,5 +1,6 @@
 /* ============================================================
-   main.js - نقطة الدخول الرئيسية النهائية الشاملة (V2)
+   main.js - نقطة الدخول الرئيسية (V2)
+   (النسخة النهائية المُصلحة)
    ============================================================ */
 
 import { APP_CONFIG } from './core/config.js';
@@ -13,16 +14,18 @@ import { router } from './ui/router.js';
 import { loadTheme } from './core/theme.js';
 import { initAuth, startIdleTimer } from './core/auth.js';
 import { initActivityLogger } from './core/activity-log.js';
+import { cleanOldTrashItems } from './core/trash.js';
 import { showDueOrdersNotification } from './core/notifications.js';
 import { initSearchShortcut } from './ui/universal-search.js';
-import { cleanOldTrashItems } from './core/trash.js';
+import { initSync, syncNow } from './core/sync.js';
+import { isSignedIn, waitForAuthReady } from './core/cloud-auth.js';
 
 // استيراد الصفحات - العمليات
 import { renderDashboardPage } from './pages/dashboard.js';
 import { renderCustomersPage } from './pages/customers.js';
 import { renderOrdersPage } from './pages/orders.js';
-import { renderPaymentsPage } from './pages/payments.js';
 import { renderCalendarPage } from './pages/calendar.js';
+import { renderPaymentsPage } from './pages/payments.js';
 
 // استيراد الصفحات - إدارة الورشة
 import { renderInventoryPage } from './pages/inventory.js';
@@ -43,13 +46,12 @@ import { renderLoansPage } from './pages/loans.js';
 import { renderActivityLogPage } from './pages/activity-log.js';
 import { renderTrashPage } from './pages/trash.js';
 
-// استيراد الصفحات - التقارير والإعدادات
-import { renderReportsPage } from './pages/reports.js';
-import { renderKpisPage } from './pages/kpis.js';
+// استيراد الصفحات - التحليل والإعدادات
 import { renderFinancialCenterPage } from './pages/financial-center.js';
-import { renderSettingsPage } from './pages/settings.js';
+import { renderKpisPage } from './pages/kpis.js';
+import { renderReportsPage } from './pages/reports.js';
 import { renderCloudSyncPage } from './pages/cloud-sync.js';
-import { initSync, syncNow } from './core/sync.js';
+import { renderSettingsPage } from './pages/settings.js';
 
 console.log(`🚀 ${APP_CONFIG.name} v${APP_CONFIG.version}`);
 
@@ -61,11 +63,9 @@ async function init() {
     console.log('📦 تحميل البيانات...');
     db.load();
 
-    // تفعيل سجل النشاط
     console.log('📜 تفعيل سجل النشاط التلقائي...');
     initActivityLogger();
 
-    // تنظيف السلة من العناصر القديمة
     console.log('🧹 تنظيف سلة المحذوفات...');
     const removedCount = cleanOldTrashItems();
     if (removedCount > 0) {
@@ -79,7 +79,6 @@ async function init() {
     initToast();
     initModal();
 
-    // تهيئة نظام القفل
     console.log('🔒 تهيئة نظام القفل...');
     const isUnlocked = initAuth();
 
@@ -108,44 +107,45 @@ function startApp() {
   // ============================================================
   // تسجيل جميع الصفحات في الراوتر
   // ============================================================
-  
+
   // العمليات
   router.register('/dashboard', renderDashboardPage);
   router.register('/customers', renderCustomersPage);
   router.register('/orders', renderOrdersPage);
+  router.register('/calendar', renderCalendarPage);
   router.register('/payments', renderPaymentsPage);
-   router.register('/calendar', renderCalendarPage);
-  
+
   // إدارة الورشة
   router.register('/inventory', renderInventoryPage);
   router.register('/workers', renderWorkersPage);
   router.register('/expenses', renderExpensesPage);
   router.register('/pricing-calculator', renderPricingCalculatorPage);
-  
+
   // التسويق والعرض
   router.register('/portfolio', renderPortfolioPage);
   router.register('/referrals', renderReferralsPage);
-  
+
   // المالية الشخصية
   router.register('/commitments', renderCommitmentsPage);
   router.register('/house-expenses', renderHouseExpensesPage);
   router.register('/loans', renderLoansPage);
-  
+
   // النظام
   router.register('/activity-log', renderActivityLogPage);
   router.register('/trash', renderTrashPage);
-  
-  // التقارير والإعدادات
-   router.register('/financial-center', renderFinancialCenterPage);
-   router.register('/kpis', renderKpisPage);
+
+  // التحليل والتقارير
+  router.register('/financial-center', renderFinancialCenterPage);
+  router.register('/kpis', renderKpisPage);
   router.register('/reports', renderReportsPage);
-   router.register('/cloud-sync', renderCloudSyncPage);
+  router.register('/cloud-sync', renderCloudSyncPage);
   router.register('/settings', renderSettingsPage);
 
   // تشغيل الراوتر
   router.init('.main-content');
-   // تفعيل اختصار البحث Ctrl+K
-initSearchShortcut();
+
+  // تفعيل اختصار البحث Ctrl+K
+  initSearchShortcut();
 
   // بدء مؤقت القفل التلقائي
   startIdleTimer();
@@ -155,25 +155,36 @@ initSearchShortcut();
     closeSidebar();
   });
 
-    console.log('✅ التطبيق جاهز');
+  console.log('✅ التطبيق جاهز');
 
-  // عرض إشعارات المواعيد
+  // عرض إشعارات المواعيد بعد ثانية
   setTimeout(() => {
     showDueOrdersNotification();
   }, 1000);
 
-  // تفعيل المزامنة السحابية
-  setTimeout(async () => {
-    try {
-      const syncReady = await initSync();
-      if (syncReady) {
-        console.log('☁️ المزامنة السحابية مفعّلة');
-        setTimeout(() => syncNow(), 2000);
-      }
-    } catch (e) {
-      console.warn('⚠️ فشل تفعيل المزامنة:', e);
-    }
-  }, 1500);
+  // ✅ إصلاح: تفعيل المزامنة بعد التأكد من جاهزية Firebase
+  setupCloudSync();
+}
+
+/* ============================================================
+   ✅ إصلاح: إعداد المزامنة السحابية (بشكل موثوق)
+   ============================================================ */
+function setupCloudSync() {
+  // 1. حالة المستخدم مسجل دخول بالفعل
+  if (isSignedIn()) {
+    console.log('☁️ المستخدم مسجّل دخول، بدء المزامنة...');
+    initSync().then(ready => {
+      if (ready) setTimeout(() => syncNow(), 1500);
+    }).catch(e => console.warn('⚠️ فشل المزامنة:', e));
+  }
+
+  // 2. الاستماع لتسجيل الدخول لاحقاً
+  events.on('cloud:auth:signin', () => {
+    console.log('🔓 تم تسجيل الدخول، بدء المزامنة...');
+    initSync().then(ready => {
+      if (ready) setTimeout(() => syncNow(), 1500);
+    }).catch(e => console.warn('⚠️ فشل المزامنة:', e));
+  });
 }
 
 /* ============================================================
@@ -226,10 +237,13 @@ if (document.readyState === 'loading') {
 } else {
   init();
 }
-// محاولة مزامنة أخيرة عند إغلاق الصفحة
+
+/* ============================================================
+   محاولة مزامنة أخيرة عند إغلاق الصفحة
+   ============================================================ */
 window.addEventListener('beforeunload', () => {
   try {
-    if (navigator.onLine) syncNow();
+    if (navigator.onLine && isSignedIn()) syncNow();
   } catch (e) { /* ignore */ }
 });
 
@@ -247,6 +261,5 @@ if ('serviceWorker' in navigator) {
       });
   });
 }
-
 
 window.__app = { version: APP_CONFIG.version, db, events, EVENTS };
