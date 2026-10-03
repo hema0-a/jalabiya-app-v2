@@ -20,13 +20,14 @@ export function renderSidebar() {
       ]
     },
     {
-      title: 'العمليات',
-      items: [
-        { path: '/customers', label: 'العملاء', icon: '👥' },
-        { path: '/orders', label: 'الطلبات', icon: '📋' },
-        { path: '/payments', label: 'الدفعات', icon: '💰' }
-      ]
-    },
+  title: 'العمليات',
+  items: [
+    { path: '/customers', label: 'العملاء', icon: '👥' },
+    { path: '/orders', label: 'الطلبات', icon: '📋' },
+    { path: '/calendar', label: 'تقويم المواعيد', icon: '📅' },
+    { path: '/payments', label: 'الدفعات', icon: '💰' }
+  ]
+},
     {
       title: 'إدارة الورشة',
       items: [
