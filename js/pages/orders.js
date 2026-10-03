@@ -1,6 +1,7 @@
 /* ============================================================
    orders.js - صفحة الطلبات المتقدمة الشاملة (V2)
-   (يشمل: تعدد أنواع + خصم + متبقي + موعد تلقائي + صورة مرجعية + فاتورة)
+   (يشمل: تعدد أنواع + خصم + رسوم إضافية + متبقي + موعد تلقائي
+    + صورة مرجعية + فاتورة + زر تذكير دفع + وقت شغل + تسليم)
    ============================================================ */
 
 import * as db from '../core/db.js';
@@ -19,7 +20,15 @@ const ORDER_STATUSES = [
   { id: 'delivered', label: 'تم التسليم', icon: '📦' }
 ];
 
-// متغيرات حالة الصفحة
+// أنواع الرسوم الإضافية
+const EXTRA_FEE_TYPES = [
+  { id: 'urgent', label: 'استعجال', icon: '⚡', defaultPercent: 20 },
+  { id: 'modification', label: 'تعديلات', icon: '✏️', defaultPercent: 0 },
+  { id: 'express', label: 'خدمة سريعة', icon: '🚀', defaultPercent: 15 },
+  { id: 'delivery', label: 'توصيل', icon: '🚚', defaultPercent: 0 },
+  { id: 'other', label: 'أخرى', icon: '📌', defaultPercent: 0 }
+];
+
 let searchQuery = '';
 let selectedStatus = 'all';
 let viewMode = 'list';
@@ -62,63 +71,66 @@ function getOrderSummary(order) {
   if (order.items && Array.isArray(order.items) && order.items.length > 0) {
     const totalQty = order.items.reduce((s, it) => s + (it.quantity || 0), 0);
     const names = order.items.map(it => it.name).join(' + ');
-    return {
-      summary: names,
-      totalQty: totalQty,
-      itemsCount: order.items.length,
-      isMulti: order.items.length > 1
-    };
+    return { summary: names, totalQty, itemsCount: order.items.length, isMulti: order.items.length > 1 };
   }
-  return {
-    summary: order.garmentType || '',
-    totalQty: order.quantity || 0,
-    itemsCount: 1,
-    isMulti: false
-  };
+  return { summary: order.garmentType || '', totalQty: order.quantity || 0, itemsCount: 1, isMulti: false };
 }
 
-/* حساب المتبقي (بعد الخصم) */
 function getOrderRemaining(order) {
-  const subtotal = order.subtotal || order.totalPrice || 0;
-  const discount = order.discountAmount || 0;
-  const finalTotal = order.totalPrice || (subtotal - discount);
+  const finalTotal = order.totalPrice || 0;
   const paid = order.deposit || 0;
   return Math.max(0, finalTotal - paid);
 }
 
-/* ============================================================
-   اقتراح موعد تسليم تلقائي بناءً على الحد اليومي
-   ============================================================ */
+/* حساب الإجمالي بعد الخصم والرسوم */
+function calculateOrderTotals(items, discountType, discountValue, extraFees) {
+  const subtotal = items.reduce((s, it) => s + ((it.price || 0) * (it.quantity || 0)), 0);
+  
+  // حساب الخصم
+  let discount = 0;
+  if (discountType === 'percent' && discountValue) discount = (subtotal * discountValue) / 100;
+  else if (discountType === 'fixed' && discountValue) discount = Math.min(discountValue, subtotal);
+  
+  // حساب الرسوم الإضافية
+  let feesTotal = 0;
+  (extraFees || []).forEach(fee => {
+    if (fee.type === 'percent') feesTotal += (subtotal * (fee.value || 0)) / 100;
+    else feesTotal += (fee.value || 0);
+  });
+  
+  const finalTotal = subtotal - discount + feesTotal;
+  return { subtotal, discount, feesTotal, finalTotal };
+}
+
+/* اقتراح موعد تسليم تلقائي */
 function suggestDueDate(newOrderTotal) {
   const settings = storage.loadSettings() || { ...DEFAULT_SETTINGS };
   const limit = settings.dailyOrderLimit || 700;
   if (limit <= 0) return null;
-
   const orders = db.getOrders();
-  
-  // ابدأ من الغد
   const candidate = new Date();
   candidate.setDate(candidate.getDate() + 1);
   
-  // ابحث حتى 30 يوماً للأمام
   for (let i = 0; i < 30; i++) {
     const y = candidate.getFullYear();
     const m = String(candidate.getMonth() + 1).padStart(2, '0');
     const d = String(candidate.getDate()).padStart(2, '0');
     const dateStr = `${y}-${m}-${d}`;
-    
-    // إجمالي الطلبات المستحقة في هذا اليوم
     const dayTotal = orders
       .filter(o => o.dueDate === dateStr && o.status !== 'delivered')
       .reduce((s, o) => s + (o.totalPrice || 0), 0);
-    
-    if (dayTotal + newOrderTotal <= limit) {
-      return dateStr;
-    }
+    if (dayTotal + newOrderTotal <= limit) return dateStr;
     candidate.setDate(candidate.getDate() + 1);
   }
-  
-  return null; // لا يوجد موعد متاح خلال 30 يوماً
+  return null;
+}
+
+/* فتح واتساب */
+function openWhatsApp(phone, message) {
+  let cleanPhone = String(phone).replace(/\D/g, '');
+  if (cleanPhone.startsWith('0')) cleanPhone = '2' + cleanPhone;
+  const url = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+  window.open(url, '_blank');
 }
 
 /* ============================================================
@@ -168,7 +180,6 @@ export function renderOrdersPage(container) {
         <button class="btn btn-primary" id="add-order-btn">+ إضافة طلب</button>
       </div>
 
-      <!-- الحد اليومي -->
       <div class="card" style="background: ${isOverLimit ? 'linear-gradient(135deg, #FFEBEE, #FFCDD2)' : 'linear-gradient(135deg, #E8F5E9, #C8E6C9)'}; border: none; margin-bottom: 12px; padding: 12px;">
         <div class="flex-between" style="margin-bottom: 8px;">
           <div style="font-size: 13px; font-weight: 700; color: ${isOverLimit ? '#B71C1C' : '#1B5E20'};">
@@ -182,14 +193,11 @@ export function renderOrdersPage(container) {
           <div style="width: ${limitPercent}%; height: 100%; background: ${isOverLimit ? 'linear-gradient(90deg, #EF5350, #C62828)' : 'linear-gradient(90deg, #66BB6A, #2E7D32)'}; transition: width 0.5s;"></div>
         </div>
         <div style="font-size: 11px; color: ${isOverLimit ? '#B71C1C' : '#1B5E20'};">
-          ${isOverLimit 
-            ? `تجاوزت الحد بـ ${money(todayTotal - dailyLimit)} جنيه` 
-            : `متبقٍ لك ${money(remainingLimit)} جنيه اليوم`}
+          ${isOverLimit ? `تجاوزت الحد بـ ${money(todayTotal - dailyLimit)} جنيه` : `متبقٍ لك ${money(remainingLimit)} جنيه اليوم`}
           &nbsp;|&nbsp; ${todayOrders.length} طلب
         </div>
       </div>
 
-      <!-- إحصائيات الحالات -->
       <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 12px;">
         <div style="text-align: center; padding: 8px 4px; background: #FFF3E0; border-radius: var(--radius-md);">
           <div style="font-size: 18px; font-weight: 800; color: #E65100;">${stats.pending}</div>
@@ -266,6 +274,7 @@ export function renderOrdersPage(container) {
       const summary = getOrderSummary(o);
       const deadline = getDeadlineInfo(o);
       const hasDiscount = (o.discountAmount || 0) > 0;
+      const hasExtraFees = (o.extraFeesTotal || 0) > 0;
       const hasImage = !!o.referenceImage;
 
       result += `
@@ -276,6 +285,7 @@ export function renderOrdersPage(container) {
               ${timerActive ? '<span class="badge" style="background: #E1F5FE; color: #0277BD; margin-right: 6px;">⏱️ يعمل</span>' : ''}
               ${summary.isMulti ? '<span class="badge" style="background: #F3E5F5; color: #6A1B9A; margin-right: 6px;">' + summary.itemsCount + ' أنواع</span>' : ''}
               ${hasDiscount ? '<span class="badge" style="background: #FFF8E1; color: #F57F17; margin-right: 6px;">💸 خصم</span>' : ''}
+              ${hasExtraFees ? '<span class="badge" style="background: #FFF3E0; color: #E65100; margin-right: 6px;">➕ رسوم</span>' : ''}
               ${hasImage ? '<span class="badge" style="background: #E3F2FD; color: #1565C0; margin-right: 6px;">📷</span>' : ''}
             </div>
             <span class="status-badge ${o.status || 'pending'}">${status.icon} ${status.label}</span>
@@ -288,7 +298,7 @@ export function renderOrdersPage(container) {
             </div>
           ` : ''}
           <div style="font-size:12px; color:var(--text-muted);">
-            💰 الإجمالي: ${money(o.totalPrice)}${hasDiscount ? ` <span style="color: #F57F17;">(بعد خصم ${money(o.discountAmount)})</span>` : ''} | المدفوع: ${money(o.deposit)} | المتبقي: <span style="color:${remaining > 0 ? '#dc3545' : '#2E7D32'}; font-weight: bold;">${money(remaining)}</span>
+            💰 الإجمالي: ${money(o.totalPrice)}${hasDiscount || hasExtraFees ? ` <span style="font-size: 10px;">(صافي)</span>` : ''} | المدفوع: ${money(o.deposit)} | المتبقي: <span style="color:${remaining > 0 ? '#dc3545' : '#2E7D32'}; font-weight: bold;">${money(remaining)}</span>
           </div>
           ${totalTime > 0 ? `<div style="font-size: 11px; color: #6A1B9A; margin-top: 4px;">⏱️ وقت الشغل: ${formatDuration(totalTime)}</div>` : ''}
         </div>
@@ -343,11 +353,7 @@ export function renderOrdersPage(container) {
                   <span>المتبقي:</span>
                   <span class="kanban-card-remaining ${remaining === 0 ? 'paid' : ''}">${money(remaining)}</span>
                 </div>
-                ${deadline ? `
-                  <div style="font-size: 10px; font-weight: 700; color: ${deadline.color}; margin-top: 4px;">
-                    📅 ${deadline.text}
-                  </div>
-                ` : ''}
+                ${deadline ? `<div style="font-size: 10px; font-weight: 700; color: ${deadline.color}; margin-top: 4px;">📅 ${deadline.text}</div>` : ''}
               </div>
               <div class="kanban-card-date">📅 ${formatDate(o.date)}</div>
             </div>
@@ -379,11 +385,14 @@ export function renderOrdersPage(container) {
     const hasSignature = isEdit && order.signature;
     const garmentTypes = db.getGarmentTypes();
 
-    // ===== حالة الخصم =====
+    // الخصم
     let discountType = isEdit ? (order.discountType || 'none') : 'none';
     let discountValue = isEdit ? (order.discountValue || 0) : 0;
 
-    // ===== العناصر =====
+    // الرسوم الإضافية
+    let extraFees = isEdit && Array.isArray(order.extraFees) ? JSON.parse(JSON.stringify(order.extraFees)) : [];
+
+    // العناصر
     let items = [];
     if (isEdit && order.items && Array.isArray(order.items) && order.items.length > 0) {
       items = JSON.parse(JSON.stringify(order.items));
@@ -399,7 +408,6 @@ export function renderOrdersPage(container) {
       items = [{ id: uid(), typeId: null, name: '', price: 0, quantity: 1 }];
     }
 
-    // ===== الصورة المرجعية =====
     let referenceImage = isEdit ? (order.referenceImage || null) : null;
 
     const customerOptions = customers.map(c => {
@@ -445,31 +453,24 @@ export function renderOrdersPage(container) {
             <h4 style="font-size: 14px; margin: 0; color: var(--primary-dark);">🧵 أنواع الجلابيات</h4>
             <button type="button" class="btn btn-primary" id="add-item-btn" style="font-size: 12px; padding: 4px 10px; min-height: 30px;">+ إضافة نوع</button>
           </div>
-          
           <div id="order-items-container" style="display: flex; flex-direction: column; gap: 10px;"></div>
         </div>
 
-        <!-- ============================================================
-             الصورة المرجعية (جديد)
-             ============================================================ -->
+        <!-- الصورة المرجعية -->
         <div class="form-group">
           <label style="display: flex; align-items: center; justify-content: space-between;">
             <span>📷 صورة مرجعية (اختياري)</span>
             ${referenceImage ? `<button type="button" id="remove-image-btn" style="background: none; border: none; color: #dc3545; font-size: 12px; cursor: pointer;">🗑️ حذف</button>` : ''}
           </label>
-          <div id="reference-image-preview" style="width: 100%; height: ${referenceImage ? '150px' : '60px'}; background: var(--bg-color); border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; border: 2px dashed var(--border-color); margin-bottom: 8px; overflow: hidden; ${referenceImage ? '' : 'cursor: pointer;'}">
-            ${referenceImage 
-              ? `<img src="${referenceImage}" style="width: 100%; height: 100%; object-fit: cover; border-radius: var(--radius-md);">`
-              : `<span style="font-size: 12px; color: var(--text-muted);">لا توجد صورة</span>`}
+          <div id="reference-image-preview" style="width: 100%; height: ${referenceImage ? '150px' : '60px'}; background: var(--bg-color); border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; border: 2px dashed var(--border-color); margin-bottom: 8px; overflow: hidden;">
+            ${referenceImage ? `<img src="${referenceImage}" style="width: 100%; height: 100%; object-fit: cover; border-radius: var(--radius-md);">` : `<span style="font-size: 12px; color: var(--text-muted);">لا توجد صورة</span>`}
           </div>
           <button type="button" class="btn btn-outline btn-full" id="pick-from-portfolio-btn" style="min-height: 36px; font-size: 12px;">
             🖼️ اختر من معرض الأعمال
           </button>
         </div>
 
-        <!-- ============================================================
-             الخصم (جديد)
-             ============================================================ -->
+        <!-- الخصم -->
         <div class="form-group">
           <label>💸 الخصم</label>
           <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 8px;">
@@ -482,25 +483,41 @@ export function renderOrdersPage(container) {
           ` : ''}
         </div>
 
+        <!-- ============================================================
+             الرسوم الإضافية (جديد)
+             ============================================================ -->
+        <div class="form-group">
+          <div class="flex-between" style="margin-bottom: 8px;">
+            <label style="margin: 0;">➕ الرسوم الإضافية</label>
+            <button type="button" class="btn btn-primary" id="add-extra-fee-btn" style="font-size: 11px; padding: 4px 10px; min-height: 28px;">+ إضافة</button>
+          </div>
+          <div id="extra-fees-container" style="display: flex; flex-direction: column; gap: 8px;"></div>
+          <div id="extra-fees-total" style="margin-top: 8px; font-size: 12px; color: var(--accent-color); font-weight: 700; text-align: left; display: none;">
+            إجمالي الرسوم: <span id="extra-fees-total-value">0</span> جنيه
+          </div>
+        </div>
+
         <div class="form-group">
           <label>المقدم</label>
           <input type="number" id="order-deposit" class="form-control" value="${isEdit ? (order.deposit || 0) : 0}">
         </div>
 
-        <!-- ============================================================
-             ملخص الحساب الحي (جديد)
-             ============================================================ -->
+        <!-- ملخص الحساب الحي -->
         <div style="background: linear-gradient(135deg, var(--primary-color), var(--primary-dark)); border-radius: var(--radius-md); padding: 12px; margin-bottom: 12px; color: white;">
           <div class="flex-between" style="padding: 4px 0; font-size: 13px;">
             <span style="opacity: 0.85;">المجموع الفرعي:</span>
             <strong id="subtotal-display">0</strong>
           </div>
-          <div class="flex-between" style="padding: 4px 0; font-size: 13px; border-bottom: 1px dashed rgba(255,255,255,0.3); padding-bottom: 8px;">
+          <div class="flex-between" style="padding: 4px 0; font-size: 13px;">
             <span style="opacity: 0.85;">الخصم:</span>
             <strong id="discount-display" style="color: #FFD54F;">0</strong>
           </div>
+          <div class="flex-between" style="padding: 4px 0; font-size: 13px; border-bottom: 1px dashed rgba(255,255,255,0.3); padding-bottom: 8px;">
+            <span style="opacity: 0.85;">الرسوم الإضافية:</span>
+            <strong id="extrafees-display" style="color: #FF8A65;">0</strong>
+          </div>
           <div class="flex-between" style="padding: 8px 0 4px 0; font-size: 14px;">
-            <span style="font-weight: 700;">الإجمالي بعد الخصم:</span>
+            <span style="font-weight: 700;">الإجمالي النهائي:</span>
             <strong id="final-total-display" style="font-size: 20px;">0</strong>
           </div>
           <div class="flex-between" style="padding: 4px 0; font-size: 13px; border-top: 1px dashed rgba(255,255,255,0.3); padding-top: 8px;">
@@ -546,10 +563,15 @@ export function renderOrdersPage(container) {
         ` : ''}
         
         ${isEdit ? `
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px;">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
             <button type="button" class="btn btn-outline" id="print-invoice-btn">🖨️ طباعة</button>
             <button type="button" class="btn" id="share-invoice-btn" style="background: #25D366; color: white;">📱 واتساب</button>
           </div>
+          ${getOrderRemaining(order) > 0 && customer_hasPhone(order) ? `
+            <button type="button" class="btn btn-full" id="payment-reminder-btn" style="background: #FFF3E0; color: #E65100; border: 2px solid #E65100; margin-bottom: 8px; font-weight: 700;">
+              🔔 إرسال تذكير بالدفع (${money(getOrderRemaining(order))} ج)
+            </button>
+          ` : ''}
           ${currentStatus !== 'delivered' ? `
             <button type="button" class="btn btn-primary btn-full" id="full-delivery-btn" style="margin-bottom: 12px;">
               📦 تسليم كامل + توقيع
@@ -571,14 +593,16 @@ export function renderOrdersPage(container) {
 
     openModal(formHtml);
 
+    // دالة مساعدة للتحقق من هاتف العميل
+    function customer_hasPhone(o) {
+      const cust = customers.find(c => c.id === o.customerId);
+      return cust && cust.phone;
+    }
+
     /* ============================================================
        إدارة العناصر
        ============================================================ */
     const itemsContainer = document.getElementById('order-items-container');
-
-    function getSubtotal() {
-      return items.reduce((s, it) => s + ((it.price || 0) * (it.quantity || 0)), 0);
-    }
 
     function calculateDiscount(subtotal) {
       if (discountType === 'none' || !discountValue) return 0;
@@ -586,20 +610,41 @@ export function renderOrdersPage(container) {
       return Math.min(discountValue, subtotal);
     }
 
+    function calculateExtraFees(subtotal) {
+      let total = 0;
+      extraFees.forEach(fee => {
+        if (fee.type === 'percent') total += (subtotal * (fee.value || 0)) / 100;
+        else total += (fee.value || 0);
+      });
+      return total;
+    }
+
     function updateSummary() {
-      const subtotal = getSubtotal();
+      const subtotal = items.reduce((s, it) => s + ((it.price || 0) * (it.quantity || 0)), 0);
       const discount = calculateDiscount(subtotal);
-      const finalTotal = subtotal - discount;
+      const extraFeesTotal = calculateExtraFees(subtotal);
+      const finalTotal = subtotal - discount + extraFeesTotal;
       const deposit = parseFloat(document.getElementById('order-deposit').value) || 0;
       const remaining = Math.max(0, finalTotal - deposit);
 
       document.getElementById('subtotal-display').textContent = money(subtotal) + ' ج';
       document.getElementById('discount-display').textContent = discount > 0 ? '- ' + money(discount) + ' ج' : '0';
+      document.getElementById('extrafees-display').textContent = extraFeesTotal > 0 ? '+ ' + money(extraFeesTotal) + ' ج' : '0';
       document.getElementById('final-total-display').textContent = money(finalTotal) + ' ج';
       document.getElementById('paid-display').textContent = money(deposit) + ' ج';
       document.getElementById('remaining-display').textContent = money(remaining) + ' ج';
 
-      return { subtotal, discount, finalTotal, deposit, remaining };
+      // تحديث إجمالي الرسوم
+      const feeTotalDiv = document.getElementById('extra-fees-total');
+      const feeTotalValue = document.getElementById('extra-fees-total-value');
+      if (extraFees.length > 0) {
+        feeTotalDiv.style.display = 'block';
+        feeTotalValue.textContent = money(extraFeesTotal);
+      } else {
+        feeTotalDiv.style.display = 'none';
+      }
+
+      return { subtotal, discount, extraFeesTotal, finalTotal, deposit, remaining };
     }
 
     function renderItems() {
@@ -673,9 +718,7 @@ export function renderOrdersPage(container) {
       });
 
       itemsContainer.querySelectorAll('.item-name').forEach(inp => {
-        inp.addEventListener('input', (e) => {
-          items[parseInt(inp.dataset.idx)].name = e.target.value;
-        });
+        inp.addEventListener('input', (e) => { items[parseInt(inp.dataset.idx)].name = e.target.value; });
       });
 
       itemsContainer.querySelectorAll('.item-price').forEach(inp => {
@@ -707,6 +750,102 @@ export function renderOrdersPage(container) {
     renderItems();
 
     /* ============================================================
+       إدارة الرسوم الإضافية (جديد)
+       ============================================================ */
+    const extraFeesContainer = document.getElementById('extra-fees-container');
+
+    function renderExtraFees() {
+      extraFeesContainer.innerHTML = '';
+      
+      if (extraFees.length === 0) {
+        extraFeesContainer.innerHTML = `<p style="text-align: center; font-size: 12px; color: var(--text-muted); padding: 6px;">لا توجد رسوم إضافية</p>`;
+        updateSummary();
+        return;
+      }
+
+      extraFees.forEach((fee, idx) => {
+        const feeDiv = document.createElement('div');
+        feeDiv.style.cssText = 'border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 8px; background: var(--surface-color);';
+        
+        const typeOptions = EXTRA_FEE_TYPES.map(t => {
+          const selected = (fee.feeType === t.id) ? 'selected' : '';
+          return `<option value="${t.id}" ${selected}>${t.icon} ${t.label}</option>`;
+        }).join('');
+
+        feeDiv.innerHTML = `
+          <div class="flex-between" style="margin-bottom: 6px;">
+            <span style="font-size: 12px; font-weight: 700;">رسم ${idx + 1}</span>
+            <button type="button" class="btn btn-danger remove-fee-btn" data-idx="${idx}" style="font-size: 11px; padding: 2px 8px; min-height: 24px;">✕</button>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+            <div>
+              <label style="font-size: 10px; color: var(--text-muted);">النوع</label>
+              <select class="form-control fee-type-select" data-idx="${idx}" style="min-height: 34px; font-size: 12px;">
+                ${typeOptions}
+              </select>
+            </div>
+            <div>
+              <label style="font-size: 10px; color: var(--text-muted);">القيمة</label>
+              <input type="number" class="form-control fee-value" data-idx="${idx}" value="${fee.value || 0}" min="0" step="any" style="min-height: 34px; font-size: 12px;">
+            </div>
+          </div>
+          <div style="margin-top: 6px; font-size: 11px;">
+            <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;">
+              <input type="checkbox" class="fee-is-percent" data-idx="${idx}" ${fee.type === 'percent' ? 'checked' : ''} style="width: 14px; height: 14px;">
+              <span>حسب النسبة % (بدلاً من مبلغ ثابت)</span>
+            </label>
+          </div>
+        `;
+        extraFeesContainer.appendChild(feeDiv);
+      });
+
+      // ربط الأحداث
+      extraFeesContainer.querySelectorAll('.remove-fee-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          extraFees.splice(parseInt(btn.dataset.idx), 1);
+          renderExtraFees();
+        });
+      });
+
+      extraFeesContainer.querySelectorAll('.fee-type-select').forEach(sel => {
+        sel.addEventListener('change', (e) => {
+          const idx = parseInt(sel.dataset.idx);
+          extraFees[idx].feeType = e.target.value;
+          // تحديث النسبة الافتراضية
+          const typeInfo = EXTRA_FEE_TYPES.find(t => t.id === e.target.value);
+          if (typeInfo && typeInfo.defaultPercent > 0 && extraFees[idx].value === 0) {
+            extraFees[idx].value = typeInfo.defaultPercent;
+            extraFees[idx].type = 'percent';
+            renderExtraFees();
+          }
+        });
+      });
+
+      extraFeesContainer.querySelectorAll('.fee-value').forEach(inp => {
+        inp.addEventListener('input', (e) => {
+          extraFees[parseInt(inp.dataset.idx)].value = parseFloat(e.target.value) || 0;
+          updateSummary();
+        });
+      });
+
+      extraFeesContainer.querySelectorAll('.fee-is-percent').forEach(chk => {
+        chk.addEventListener('change', (e) => {
+          extraFees[parseInt(chk.dataset.idx)].type = e.target.checked ? 'percent' : 'fixed';
+          updateSummary();
+        });
+      });
+
+      updateSummary();
+    }
+
+    document.getElementById('add-extra-fee-btn').addEventListener('click', () => {
+      extraFees.push({ id: uid(), feeType: 'urgent', value: 0, type: 'fixed' });
+      renderExtraFees();
+    });
+
+    renderExtraFees();
+
+    /* ============================================================
        الخصم
        ============================================================ */
     function renderDiscountUI() {
@@ -714,7 +853,6 @@ export function renderOrdersPage(container) {
         btn.addEventListener('click', () => {
           discountType = btn.dataset.type;
           if (discountType === 'none') discountValue = 0;
-          // إعادة رسم الواجهة
           const discountSection = btn.closest('.form-group');
           const hasInput = document.getElementById('discount-value');
           if (discountType !== 'none' && !hasInput) {
@@ -736,7 +874,6 @@ export function renderOrdersPage(container) {
           } else if (hasInput) {
             hasInput.placeholder = discountType === 'percent' ? 'النسبة %' : 'المبلغ بالجنيه';
           }
-          // تحديث شكل الأزرار
           document.querySelectorAll('.discount-type-btn').forEach(b => {
             if (b.dataset.type === discountType) {
               b.classList.remove('btn-outline');
@@ -760,9 +897,6 @@ export function renderOrdersPage(container) {
     }
     renderDiscountUI();
 
-    /* ============================================================
-       المقدم - تحديث المتبقي
-       ============================================================ */
     document.getElementById('order-deposit').addEventListener('input', updateSummary);
 
     /* ============================================================
@@ -772,7 +906,7 @@ export function renderOrdersPage(container) {
 
     document.getElementById('pick-from-portfolio-btn').addEventListener('click', () => {
       if (portfolio.length === 0) {
-        toast.info('لا توجد صور في معرض الأعمال. أضف صوراً أولاً من "معرض الأعمال".');
+        toast.info('لا توجد صور في معرض الأعمال.');
         return;
       }
 
@@ -796,15 +930,14 @@ export function renderOrdersPage(container) {
           if (p) {
             referenceImage = p.image;
             closeModal();
-            // إعادة فتح نموذج الطلب مع الصورة الجديدة
-            setTimeout(() => openOrderModalWithData(isEdit, order, items, discountType, discountValue, referenceImage), 200);
+            setTimeout(() => openOrderModalWithData(isEdit, order, items, discountType, discountValue, extraFees, referenceImage), 200);
           }
         });
       });
 
       document.getElementById('cancel-pick-btn').addEventListener('click', () => {
         closeModal();
-        setTimeout(() => openOrderModalWithData(isEdit, order, items, discountType, discountValue, referenceImage), 200);
+        setTimeout(() => openOrderModalWithData(isEdit, order, items, discountType, discountValue, extraFees, referenceImage), 200);
       });
     });
 
@@ -813,7 +946,7 @@ export function renderOrdersPage(container) {
       removeImgBtn.addEventListener('click', () => {
         referenceImage = null;
         closeModal();
-        setTimeout(() => openOrderModalWithData(isEdit, order, items, discountType, discountValue, referenceImage), 200);
+        setTimeout(() => openOrderModalWithData(isEdit, order, items, discountType, discountValue, extraFees, referenceImage), 200);
       });
     }
 
@@ -821,7 +954,11 @@ export function renderOrdersPage(container) {
        الموعد التلقائي
        ============================================================ */
     document.getElementById('suggest-date-btn').addEventListener('click', () => {
-      const currentTotal = getSubtotal() - calculateDiscount(getSubtotal());
+      const subtotal = items.reduce((s, it) => s + ((it.price || 0) * (it.quantity || 0)), 0);
+      const discount = calculateDiscount(subtotal);
+      const extraFeesTotal = calculateExtraFees(subtotal);
+      const currentTotal = subtotal - discount + extraFeesTotal;
+      
       if (currentTotal <= 0) {
         toast.error('أضف عناصر أولاً لحساب الموعد');
         return;
@@ -834,14 +971,14 @@ export function renderOrdersPage(container) {
         hintDiv.style.display = 'block';
         hintDiv.style.color = '#2E7D32';
       } else {
-        hintDiv.textContent = '⚠️ لا يوجد موعد متاح خلال 30 يوماً. الورشة ممتلئة!';
+        hintDiv.textContent = '⚠️ لا يوجد موعد متاح خلال 30 يوماً.';
         hintDiv.style.display = 'block';
         hintDiv.style.color = '#dc3545';
       }
     });
 
     /* ============================================================
-       اختيار الحالة
+       الحالة + العداد
        ============================================================ */
     document.querySelectorAll('.status-option').forEach(opt => {
       opt.addEventListener('click', () => {
@@ -851,9 +988,6 @@ export function renderOrdersPage(container) {
       });
     });
 
-    /* ============================================================
-       زر بدء/إيقاف العمل
-       ============================================================ */
     if (isEdit) {
       const timerBtn = document.getElementById('timer-btn');
       const timeDisplay = document.getElementById('work-time-display');
@@ -904,6 +1038,38 @@ export function renderOrdersPage(container) {
     }
 
     /* ============================================================
+       زر تذكير بالدفع (جديد)
+       ============================================================ */
+    if (isEdit && document.getElementById('payment-reminder-btn')) {
+      document.getElementById('payment-reminder-btn').addEventListener('click', () => {
+        const freshOrder = db.getOrder(order.id);
+        const cust = customers.find(c => c.id === freshOrder.customerId);
+        if (!cust || !cust.phone) {
+          toast.error('لا يوجد رقم هاتف للعميل');
+          return;
+        }
+        const remaining = getOrderRemaining(freshOrder);
+        const summary = getOrderSummary(freshOrder);
+        const settings = storage.loadSettings() || { ...DEFAULT_SETTINGS };
+        const workshopName = settings.workshopName || 'ورشة تفصيل الجلابيب';
+
+        const msg = `السلام عليكم ${cust.name} 🌹
+تذكير ودّي من ${workshopName}
+
+━━━━━━━━━━━━━━━
+🧵 الطلب: ${summary.summary}
+💰 الإجمالي: ${money(freshOrder.totalPrice)} جنيه
+💵 المدفوع: ${money(freshOrder.deposit || 0)} جنيه
+━━━━━━━━━━━━━━━
+⏳ *المتبقي: ${money(remaining)} جنيه*
+
+نشكرك على تعاملك معنا 🌟`;
+
+        openWhatsApp(cust.phone, msg);
+      });
+    }
+
+    /* ============================================================
        حفظ النموذج
        ============================================================ */
     document.getElementById('order-form').addEventListener('submit', (e) => {
@@ -926,12 +1092,15 @@ export function renderOrdersPage(container) {
         return;
       }
 
+      // الحسابات النهائية
       const subtotal = validItems.reduce((s, it) => s + (it.price * it.quantity), 0);
       const discount = calculateDiscount(subtotal);
-      const finalTotal = subtotal - discount;
+      const extraFeesTotal = calculateExtraFees(subtotal);
+      const finalTotal = subtotal - discount + extraFeesTotal;
       const totalQty = validItems.reduce((s, it) => s + it.quantity, 0);
       const firstItem = validItems[0];
 
+      // التحقق من الحد اليومي
       if (!isEdit) {
         const settings2 = storage.loadSettings() || { ...DEFAULT_SETTINGS };
         const limit = settings2.dailyOrderLimit || 700;
@@ -952,6 +1121,8 @@ export function renderOrdersPage(container) {
         discountType: discountType,
         discountValue: discountValue,
         discountAmount: discount,
+        extraFees: extraFees,
+        extraFeesTotal: extraFeesTotal,
         totalPrice: finalTotal,
         deposit,
         status,
@@ -997,32 +1168,17 @@ export function renderOrdersPage(container) {
     }
   }
 
-  /* دالة مساعدة لإعادة فتح النموذج مع البيانات المحدثة */
-  function openOrderModalWithData(isEdit, order, items, discountType, discountValue, referenceImage) {
+  /* دالة إعادة فتح النموذج بعد استرجاع الحالة */
+  function openOrderModalWithData(isEdit, order, items, discountType, discountValue, extraFees, referenceImage) {
     if (isEdit) {
-      // تحديث مؤقت للطلب في الذاكرة
       const currentOrder = db.getOrder(order.id);
-      const updates = {
-        items: items,
-        discountType: discountType,
-        discountValue: discountValue,
-        referenceImage: referenceImage
-      };
-      // نفتح النموذج مباشرة بعد استعادة البيانات
-      const mergedOrder = { ...currentOrder, ...updates };
+      const mergedOrder = { ...currentOrder, items, discountType, discountValue, extraFees, referenceImage };
       openOrderModal(mergedOrder);
     } else {
-      // طلب جديد - نحفظ الحالة مؤقتاً
-      const draftOrder = {
-        items: items,
-        discountType: discountType,
-        discountValue: discountValue,
-        referenceImage: referenceImage,
-        customerId: '',
-        status: 'pending',
-        date: today()
-      };
-      openOrderModal(draftOrder);
+      openOrderModal({
+        items, discountType, discountValue, extraFees, referenceImage,
+        customerId: '', status: 'pending', date: today()
+      });
     }
   }
 
@@ -1033,18 +1189,15 @@ export function renderOrdersPage(container) {
     const formHtml = `
       <h3 class="card-title no-border">✍️ توقيع التسليم</h3>
       <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">اطلب من العميل التوقيع في المساحة التالية.</p>
-      
       <div style="background: var(--bg-color); padding: 10px; border-radius: var(--radius-md); margin-bottom: 12px;">
         <div style="font-size: 12px; color: var(--text-muted);">الطلب:</div>
         <div style="font-weight: 700;">${getOrderSummary(order).summary}</div>
         <div style="font-size: 12px; color: var(--text-muted);">الإجمالي: ${money(order.totalPrice)} جنيه</div>
       </div>
-      
       <div style="position: relative; border: 2px dashed var(--border-color); border-radius: var(--radius-md); background: white; margin-bottom: 12px; overflow: hidden;">
         <canvas id="signature-canvas" style="display: block; width: 100%; height: 200px; touch-action: none; cursor: crosshair;"></canvas>
         <div id="canvas-hint" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #ccc; font-size: 14px; pointer-events: none;">✍️ وقّع هنا</div>
       </div>
-      
       <div class="flex-between mt-2" style="gap: 8px;">
         <button type="button" class="btn btn-outline" id="clear-sig-btn" style="flex: 1;">🗑️ مسح</button>
         <button type="button" class="btn btn-outline" id="cancel-sig-btn" style="flex: 1;">إلغاء</button>
@@ -1071,7 +1224,6 @@ export function renderOrdersPage(container) {
       ctx.lineJoin = 'round';
       ctx.strokeStyle = '#1F6D57';
     }
-
     setTimeout(resizeCanvas, 50);
 
     function getPos(e) {
@@ -1079,7 +1231,6 @@ export function renderOrdersPage(container) {
       const touch = e.touches ? e.touches[0] : e;
       return { x: touch.clientX - rect.left, y: touch.clientY - rect.top };
     }
-
     function startDrawing(e) { e.preventDefault(); isDrawing = true; hasDrawn = true; hint.style.display = 'none'; const pos = getPos(e); ctx.beginPath(); ctx.moveTo(pos.x, pos.y); }
     function draw(e) { if (!isDrawing) return; e.preventDefault(); const pos = getPos(e); ctx.lineTo(pos.x, pos.y); ctx.stroke(); }
     function stopDrawing() { isDrawing = false; }
