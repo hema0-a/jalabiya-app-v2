@@ -25,10 +25,6 @@ export const APP_CONFIG = {
   maxActivityLog: 500,
 };
 
-/* ============================================================
-   المقاسات القياسية الافتراضية
-   (يمكن للمستخدم تعديلها من الإعدادات)
-   ============================================================ */
 export const DEFAULT_MEASUREMENT_FIELDS = [
   { id: 'shoulder', label: 'الكتف', enabled: true },
   { id: 'chest', label: 'الصدر', enabled: true },
@@ -38,6 +34,20 @@ export const DEFAULT_MEASUREMENT_FIELDS = [
   { id: 'neck', label: 'الرقبة', enabled: true },
   { id: 'bottom', label: 'الوسع (أسفل)', enabled: true },
   { id: 'hip', label: 'الأرداف', enabled: true }
+];
+
+/* ============================================================
+   المواسم والأعياد الافتراضية
+   (يتم ملؤها تلقائياً عند أول تشغيل)
+   ============================================================ */
+export const DEFAULT_OCCASIONS = [
+  { id: 'occ_ramadan', name: 'رمضان', month: 3, day: 1, recurring: true, alertDaysBefore: 30, icon: '🌙' },
+  { id: 'occ_eid_fitr', name: 'عيد الفطر', month: 4, day: 10, recurring: true, alertDaysBefore: 21, icon: '🎉' },
+  { id: 'occ_eid_adha', name: 'عيد الأضحى', month: 6, day: 10, recurring: true, alertDaysBefore: 21, icon: '🐑' },
+  { id: 'occ_mawlid', name: 'المولد النبوي', month: 9, day: 12, recurring: true, alertDaysBefore: 14, icon: '🕌' },
+  { id: 'occ_school_start', name: 'بداية العام الدراسي', month: 9, day: 1, recurring: true, alertDaysBefore: 30, icon: '🎓' },
+  { id: 'occ_new_year', name: 'رأس السنة', month: 1, day: 1, recurring: true, alertDaysBefore: 14, icon: '🎊' },
+  { id: 'occ_mothers', name: 'عيد الأم', month: 3, day: 21, recurring: true, alertDaysBefore: 14, icon: '💐' }
 ];
 
 export const DEFAULT_SETTINGS = {
@@ -56,6 +66,8 @@ export const DEFAULT_SETTINGS = {
   highContrast: false,
   compactMode: false,
   clientMode: false,
+  background: 'none',
+  iconStyle: 'default',
   fontFamily: 'default',
   fontSize: 1,
   dayOffWeekday: 0,
@@ -71,18 +83,19 @@ export const DEFAULT_SETTINGS = {
   referralRewardPercent: 5,
   trashRetentionDays: 7,
   dailyOrderLimit: 700,
-   // ===== إعدادات شاشة القفل =====
-lockScreenBackground: null,
-lockScreenMessage: 'أدخل الرقم السري للدخول',
-lockScreenShowLogo: true,
-   // ===== إعدادات تجميع القياسات =====
-enableMeasurementGrouping: false,
-measurementTolerance: 2,
-groupByGarmentType: true,
   dailyOrderCount: 5,
   reminderDaysBefore: 1,
-  // ===== جديد: المقاسات القابلة للتخصيص =====
   customMeasurementFields: DEFAULT_MEASUREMENT_FIELDS,
+  lockScreenBackground: null,
+  lockScreenMessage: 'أدخل الرقم السري للدخول',
+  lockScreenShowLogo: true,
+  enableMeasurementGrouping: false,
+  measurementTolerance: 2,
+  groupByGarmentType: true,
+  // مواعيد استلام القماش
+  fabricPickupAlertDays: 2,
+  // تنبيهات المواسم
+  occasionsAlertEnabled: true,
 };
 
 export const DEFAULT_DB = {
@@ -91,12 +104,12 @@ export const DEFAULT_DB = {
   orders: [],
   payments: [],
   expenses: [],
-  
+
   // المخزون والعمال
   inventory: [],
   workers: [],
   workerPayments: [],
-  
+
   // المالية الشخصية
   commitments: [],
   commitmentPayments: [],
@@ -104,30 +117,31 @@ export const DEFAULT_DB = {
   personalLoans: [],
   loanPayments: [],
   savingsGoals: [],
-  
+
   // الميزات المتقدمة
   referrals: [],
   referralRewards: [],
   portfolio: [],
-  
-  // ===== جديد: أنواع الجلابيات مع الأسعار =====
   garmentTypes: [],
-  
+
+  // المواسم والأعياد
+  occasions: [],
+
   // متفرقات
   holidays: [],
-  occasions: [],
   activityLog: [],
   trash: [],
-  
+
   // الأمان
   password: '0000',
   managerPassword: null,
   receptionPassword: null,
   financePassword: null,
-  
+
   // معلومات الإصدار
   updatedAt: 0,
   schemaVersion: 2,
+  occasionsInitialized: false,
 };
 
 /* ============================================================
@@ -143,9 +157,6 @@ export const INVENTORY_CATEGORIES = [
   { id: 'other', label: 'أخرى', icon: '📦' }
 ];
 
-/* ============================================================
-   أنواع أجور العمال
-   ============================================================ */
 export const WORKER_SALARY_TYPES = [
   { id: 'fixed', label: 'راتب ثابت شهري', icon: '💼' },
   { id: 'per_piece', label: 'بالقطعة', icon: '✂️' },
@@ -153,9 +164,6 @@ export const WORKER_SALARY_TYPES = [
   { id: 'hourly', label: 'أجر بالساعة', icon: '⏰' }
 ];
 
-/* ============================================================
-   تخصصات العمال
-   ============================================================ */
 export const WORKER_SPECIALTIES = [
   { id: 'cutting', label: 'قص', icon: '✂️' },
   { id: 'sewing', label: 'خياطة', icon: '🧵' },
@@ -165,9 +173,6 @@ export const WORKER_SPECIALTIES = [
   { id: 'packaging', label: 'تغليف', icon: '📦' }
 ];
 
-/* ============================================================
-   تصنيفات مصروفات الورشة
-   ============================================================ */
 export const EXPENSE_CATEGORIES = [
   { id: 'materials', label: 'خامات وأقمشة', icon: '🧵' },
   { id: 'rent', label: 'إيجار', icon: '🏠' },
@@ -179,9 +184,6 @@ export const EXPENSE_CATEGORIES = [
   { id: 'other', label: 'أخرى', icon: '📌' }
 ];
 
-/* ============================================================
-   تصنيفات الالتزامات
-   ============================================================ */
 export const COMMITMENT_CATEGORIES = [
   { id: 'rent', label: 'إيجار', icon: '🏠' },
   { id: 'installment', label: 'قسط', icon: '💳' },
@@ -202,9 +204,6 @@ export const COMMITMENT_FREQUENCIES = [
   { id: 'once', label: 'مرة واحدة', icon: '1️⃣' }
 ];
 
-/* ============================================================
-   تصنيفات مصاريف البيت
-   ============================================================ */
 export const HOUSE_EXPENSE_CATEGORIES = [
   { id: 'food', label: 'طعام وشراب', icon: '🍞' },
   { id: 'bills', label: 'فواتير', icon: '🧾' },
@@ -218,17 +217,11 @@ export const HOUSE_EXPENSE_CATEGORIES = [
   { id: 'other', label: 'أخرى', icon: '📌' }
 ];
 
-/* ============================================================
-   أنواع القروض
-   ============================================================ */
 export const LOAN_TYPES = [
   { id: 'given', label: 'قرض قدّمته (ليّ)', icon: '📤' },
   { id: 'received', label: 'قرض استلمته (عليّ)', icon: '📥' }
 ];
 
-/* ============================================================
-   تصنيفات معرض الأعمال
-   ============================================================ */
 export const PORTFOLIO_CATEGORIES = [
   { id: 'men', label: 'جلابيات رجالي', icon: '👔' },
   { id: 'women', label: 'جلابيات نسائي', icon: '👗' },
@@ -241,7 +234,7 @@ export const PORTFOLIO_CATEGORIES = [
 ];
 
 /* ============================================================
-   أنواع الأنشطة (لسجل النشاط)
+   أنواع الأنشطة
    ============================================================ */
 export const ACTIVITY_TYPES = {
   CUSTOMER_ADDED: { id: 'customer:added', label: 'إضافة عميل', icon: '👤', color: '#2E7D32' },
@@ -270,6 +263,9 @@ export const ACTIVITY_TYPES = {
   PORTFOLIO_DELETED: { id: 'portfolio:deleted', label: 'حذف صورة من المعرض', icon: '🗑️', color: '#C62828' },
   GARMENT_TYPE_ADDED: { id: 'garmentType:added', label: 'إضافة نوع جلابية', icon: '👔', color: '#2E7D32' },
   GARMENT_TYPE_DELETED: { id: 'garmentType:deleted', label: 'حذف نوع جلابية', icon: '🗑️', color: '#C62828' },
+  OCCASION_ADDED: { id: 'occasion:added', label: 'إضافة مناسبة', icon: '🎉', color: '#2E7D32' },
+  OCCASION_UPDATED: { id: 'occasion:updated', label: 'تعديل مناسبة', icon: '✏️', color: '#F57C00' },
+  OCCASION_DELETED: { id: 'occasion:deleted', label: 'حذف مناسبة', icon: '🗑️', color: '#C62828' },
   BACKUP_EXPORTED: { id: 'backup:exported', label: 'تصدير نسخة احتياطية', icon: '📤', color: '#1565C0' },
   BACKUP_IMPORTED: { id: 'backup:imported', label: 'استيراد نسخة احتياطية', icon: '📥', color: '#1565C0' },
   DATA_RESET: { id: 'data:reset', label: 'حذف جميع البيانات', icon: '⚠️', color: '#C62828' },
@@ -279,9 +275,6 @@ export const ACTIVITY_TYPES = {
   TRASH_DELETED: { id: 'trash:deleted', label: 'حذف نهائي من السلة', icon: '🗑️', color: '#C62828' }
 };
 
-/* ============================================================
-   أنواع العناصر (لسلة المحذوفات)
-   ============================================================ */
 export const TRASH_ITEM_TYPES = {
   customer: { label: 'عميل', icon: '👤', color: '#2E7D32' },
   order: { label: 'طلب', icon: '📋', color: '#1565C0' },
@@ -298,5 +291,6 @@ export const TRASH_ITEM_TYPES = {
   savingsGoal: { label: 'هدف ادخار', icon: '🎯', color: '#2E7D32' },
   referral: { label: 'إحالة', icon: '🤝', color: '#0277BD' },
   portfolio: { label: 'صورة معرض', icon: '📸', color: '#6A1B9A' },
-  garmentType: { label: 'نوع جلابية', icon: '👔', color: '#C62828' }
+  garmentType: { label: 'نوع جلابية', icon: '👔', color: '#C62828' },
+  occasion: { label: 'مناسبة', icon: '🎉', color: '#2E7D32' }
 };
