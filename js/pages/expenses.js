@@ -1,6 +1,6 @@
 /* ============================================================
    expenses.js - صفحة مصروفات الورشة (V2)
-   (النسخة الكاملة الشاملة - مع ربط FAB + escapeHtml)
+   (النسخة الكاملة مع العرض التدريجي)
    ============================================================ */
 
 import * as db from '../core/db.js';
@@ -8,6 +8,7 @@ import { toast } from '../ui/toast.js';
 import { openModal, closeModal } from '../ui/modal.js';
 import { today, money, formatDate, escapeHtml } from '../core/utils.js';
 import { EXPENSE_CATEGORIES } from '../core/config.js';
+import { initProgressiveList } from '../core/list-renderer.js';
 
 let searchQuery = '';
 let selectedCategory = 'all';
@@ -44,7 +45,7 @@ export function renderExpensesPage(container) {
   const monthTotal = monthExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
   const totalFiltered = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
 
-  // حساب توزيع التصنيفات (للشهر الحالي)
+  // توزيع التصنيفات (للشهر الحالي)
   const categoryTotals = {};
   monthExpenses.forEach(e => {
     categoryTotals[e.category] = (categoryTotals[e.category] || 0) + (e.amount || 0);
@@ -57,7 +58,6 @@ export function renderExpensesPage(container) {
         <button class="btn btn-primary" id="add-expense-btn">+ إضافة مصروف</button>
       </div>
 
-      <!-- الإحصائيات -->
       <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px;">
         <div class="stat-card" style="padding: 10px 6px;">
           <div class="stat-value" style="font-size: 16px; color: var(--accent-color);">${money(monthTotal)}</div>
@@ -73,12 +73,10 @@ export function renderExpensesPage(container) {
         </div>
       </div>
 
-      <!-- البحث -->
       <div class="form-group" style="margin-bottom: 10px;">
         <input type="text" id="search-expense-input" class="form-control" placeholder="🔍 ابحث في المصروفات..." value="${escapeHtml(searchQuery)}">
       </div>
 
-      <!-- فلترة التصنيف -->
       <div style="display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 12px;">
         <button class="btn ${selectedCategory === 'all' ? 'btn-primary' : 'btn-outline'} category-filter-btn" data-cat="all" style="font-size: 12px; padding: 6px 12px; white-space: nowrap; min-height: 32px;">
           الكل
@@ -89,51 +87,28 @@ export function renderExpensesPage(container) {
           </button>
         `).join('')}
       </div>
-  `;
 
-  // عرض القائمة
-  if (expenses.length === 0) {
-    html += `
-      <div class="empty-state">
-        <div class="empty-state-icon">💸</div>
-        <p>${searchQuery || selectedCategory !== 'all' ? 'لا توجد نتائج مطابقة.' : 'لا توجد مصروفات مسجلة حتى الآن.'}</p>
-      </div>
-    `;
-  } else {
-    // عرض الإجمالي المفلتر
-    if (selectedCategory !== 'all' || searchQuery) {
-      html += `
+      ${selectedCategory !== 'all' || searchQuery ? `
         <div style="padding: 8px 12px; background: #fff8e1; border-radius: var(--radius-md); margin-bottom: 10px; font-size: 13px;">
           <strong>إجمالي النتائج:</strong> ${money(totalFiltered)} (${expenses.length} مصروف)
         </div>
-      `;
-    }
+      ` : ''}
 
-    html += `<div style="display:flex; flex-direction:column; gap:8px;">`;
-    expenses.forEach(e => {
-      const cat = EXPENSE_CATEGORIES.find(c => c.id === e.category) || EXPENSE_CATEGORIES[7];
-      html += `
-        <div class="expense-item" data-id="${e.id}" style="border: 1px solid var(--border-color); border-right: 4px solid var(--accent-color); padding: 12px; border-radius: var(--radius-md); background: var(--bg-color); cursor: pointer;">
-          <div class="flex-between" style="margin-bottom: 4px;">
-            <div style="font-weight: bold; font-size: 15px;">${cat.icon} ${cat.label}</div>
-            <div style="font-weight: bold; color: #dc3545; font-size: 15px;">${money(e.amount)}</div>
-          </div>
-          <div style="font-size: 12px; color: var(--text-muted);">
-            📅 ${formatDate(e.date)}${e.note ? ' | 📝 ' + escapeHtml(e.note) : ''}
-          </div>
+      ${expenses.length > 20 ? `
+        <div style="background: #E3F2FD; padding: 8px 12px; border-radius: var(--radius-md); margin-bottom: 12px; font-size: 12px; color: #1565C0;">
+          ℹ️ يتم عرض 20 مصروف في البداية، وسيتم تحميل المزيد عند التمرير.
         </div>
-      `;
-    });
-    html += `</div>`;
-  }
+      ` : ''}
 
-  html += `</div>`;
+      <div id="expenses-progressive-list"></div>
+    </div>
+  `;
 
-  // قسم توزيع التصنيفات (إن وجدت مصاريف هذا الشهر)
+  // قسم توزيع التصنيفات
   if (Object.keys(categoryTotals).length > 0) {
     const sortedCats = Object.entries(categoryTotals).sort((a, b) => b[1] - a[1]);
     const maxCatTotal = sortedCats[0][1];
-    
+
     html += `
       <div class="card">
         <h3 class="card-title" style="font-size: 15px;">📊 توزيع مصاريف الشهر</h3>
@@ -159,6 +134,61 @@ export function renderExpensesPage(container) {
   container.innerHTML = html;
 
   /* ============================================================
+     بناء عنصر مصروف واحد
+     ============================================================ */
+  function buildExpenseItem(e) {
+    const cat = EXPENSE_CATEGORIES.find(c => c.id === e.category) || EXPENSE_CATEGORIES[7];
+    return `
+      <div class="expense-item" data-id="${e.id}" style="border: 1px solid var(--border-color); border-right: 4px solid var(--accent-color); padding: 12px; border-radius: var(--radius-md); background: var(--bg-color); cursor: pointer; margin-bottom: 8px;">
+        <div class="flex-between" style="margin-bottom: 4px;">
+          <div style="font-weight: bold; font-size: 15px;">${cat.icon} ${cat.label}</div>
+          <div style="font-weight: bold; color: #dc3545; font-size: 15px;">${money(e.amount)}</div>
+        </div>
+        <div style="font-size: 12px; color: var(--text-muted);">
+          📅 ${formatDate(e.date)}${e.note ? ' | 📝 ' + escapeHtml(e.note) : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  /* ============================================================
+     استخدام العرض التدريجي
+     ============================================================ */
+  const listContainer = document.getElementById('expenses-progressive-list');
+  if (listContainer) {
+    if (expenses.length === 0) {
+      listContainer.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state-icon">💸</div>
+          <p>${searchQuery || selectedCategory !== 'all' ? 'لا توجد نتائج مطابقة.' : 'لا توجد مصروفات مسجلة حتى الآن.'}</p>
+        </div>
+      `;
+    } else {
+      initProgressiveList('expenses-progressive-list', expenses, buildExpenseItem, {
+        batchSize: 20,
+        emptyMessage: 'لا توجد مصروفات'
+      });
+    }
+  }
+
+  /* ============================================================
+     ربط أحداث العناصر
+     ============================================================ */
+  function bindProgressiveEvents() {
+    container.querySelectorAll('.expense-item').forEach(item => {
+      if (item.dataset.bound === '1') return;
+      item.dataset.bound = '1';
+      item.addEventListener('click', () => {
+        const expense = db.getExpense(item.dataset.id);
+        if (expense) openExpenseModal(expense);
+      });
+    });
+  }
+
+  setTimeout(bindProgressiveEvents, 100);
+  window.addEventListener('scroll', bindProgressiveEvents, { passive: true });
+
+  /* ============================================================
      نموذج إضافة/تعديل مصروف
      ============================================================ */
   function openExpenseModal(expense = null) {
@@ -175,9 +205,7 @@ export function renderExpensesPage(container) {
       <form id="expense-form">
         <div class="form-group">
           <label>التصنيف *</label>
-          <select id="expense-category" class="form-control" required>
-            ${categoryOptions}
-          </select>
+          <select id="expense-category" class="form-control" required>${categoryOptions}</select>
         </div>
         <div class="form-group">
           <label>المبلغ *</label>
@@ -248,14 +276,9 @@ export function renderExpensesPage(container) {
   /* ============================================================
      ربط الأحداث
      ============================================================ */
-
-  // زر الإضافة
   const addBtn = container.querySelector('#add-expense-btn');
-  if (addBtn) {
-    addBtn.addEventListener('click', () => openExpenseModal(null));
-  }
+  if (addBtn) addBtn.addEventListener('click', () => openExpenseModal(null));
 
-  // البحث
   const searchInput = container.querySelector('#search-expense-input');
   if (searchInput) {
     searchInput.addEventListener('input', (e) => {
@@ -270,7 +293,6 @@ export function renderExpensesPage(container) {
     });
   }
 
-  // فلترة التصنيف
   container.querySelectorAll('.category-filter-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       selectedCategory = btn.dataset.cat;
@@ -278,16 +300,8 @@ export function renderExpensesPage(container) {
     });
   });
 
-  // النقر على مصروف للتعديل
-  container.querySelectorAll('.expense-item').forEach(item => {
-    item.addEventListener('click', () => {
-      const expense = db.getExpense(item.dataset.id);
-      if (expense) openExpenseModal(expense);
-    });
-  });
-
   /* ============================================================
-     ✅ ربط FAB (الإجراءات السريعة)
+     ربط FAB
      ============================================================ */
   if (window.__expensesQuickListener) {
     document.removeEventListener('quick-action', window.__expensesQuickListener);
@@ -295,8 +309,8 @@ export function renderExpensesPage(container) {
   window.__expensesQuickListener = (e) => {
     if (e.detail.action === 'new-expense') {
       setTimeout(() => {
-        const addBtn = container.querySelector('#add-expense-btn');
-        if (addBtn) addBtn.click();
+        const btn = container.querySelector('#add-expense-btn');
+        if (btn) btn.click();
       }, 150);
     }
   };
