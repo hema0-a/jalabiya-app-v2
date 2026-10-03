@@ -1,10 +1,9 @@
 /* ============================================================
-   db.js - طبقة البيانات الشاملة النهائية (V2)
-   (تشمل: العملاء، الطلبات، الدفعات، المصروفات، المخزون،
-    العمال، المالية الشخصية، الإحالات، معرض الأعمال)
+   db.js - طبقة البيانات الشاملة (V2)
+   (النسخة الكاملة مع المواسم)
    ============================================================ */
 
-import { APP_CONFIG, DEFAULT_DB } from './config.js';
+import { APP_CONFIG, DEFAULT_DB, DEFAULT_OCCASIONS } from './config.js';
 import * as storage from './storage.js';
 import { events, EVENTS } from './events.js';
 import { deepClone, uid, today } from './utils.js';
@@ -28,16 +27,18 @@ export function load() {
         expenses: state.expenses.length,
         inventory: state.inventory.length,
         workers: state.workers.length,
-        commitments: state.commitments.length,
-        houseExpenses: state.houseExpenses.length,
-        personalLoans: state.personalLoans.length,
-        portfolio: state.portfolio.length
+        portfolio: state.portfolio.length,
+        occasions: state.occasions.length
       });
     } else {
       state = deepClone(DEFAULT_DB);
       console.log('📭 DB empty — using defaults');
       save(true);
     }
+
+    // تهيئة المواسم الافتراضية عند أول تشغيل
+    initializeOccasions();
+
     events.emit(EVENTS.DB_LOADED, state);
     return state;
   } catch (e) {
@@ -47,13 +48,37 @@ export function load() {
   }
 }
 
+/* ============================================================
+   تهيئة المواسم الافتراضية (مرة واحدة فقط)
+   ============================================================ */
+function initializeOccasions() {
+  if (state.occasionsInitialized === true) return;
+  if (!Array.isArray(state.occasions)) state.occasions = [];
+
+  // إضافة المواسم الافتراضية إذا كانت القائمة فارغة
+  if (state.occasions.length === 0) {
+    DEFAULT_OCCASIONS.forEach(occ => {
+      state.occasions.push({
+        ...occ,
+        id: occ.id || uid(),
+        enabled: true,
+        createdAt: Date.now()
+      });
+    });
+    console.log('🎉 تم تهيئة المواسم الافتراضية:', state.occasions.length);
+  }
+
+  state.occasionsInitialized = true;
+  save(true);
+}
+
 function mergeWithDefaults(saved) {
   const merged = { ...deepClone(DEFAULT_DB), ...saved };
   ['customers', 'orders', 'payments', 'expenses', 'commitments',
    'commitmentPayments', 'houseExpenses', 'personalLoans', 'loanPayments',
    'savingsGoals', 'inventory', 'workers', 'workerPayments',
-   'referrals', 'referralRewards', 'portfolio',
-   'garmentTypes', 'holidays', 'occasions', 'activityLog', 'trash'].forEach(key => {
+   'referrals', 'referralRewards', 'portfolio', 'garmentTypes',
+   'occasions', 'holidays', 'activityLog', 'trash'].forEach(key => {
     if (!Array.isArray(merged[key])) merged[key] = [];
   });
   return merged;
@@ -682,6 +707,7 @@ export function deletePortfolioItem(id) {
   events.emit('portfolio:deleted', item);
   return true;
 }
+
 /* ============================================================
    قسم أنواع الجلابيات (Garment Types)
    ============================================================ */
@@ -724,6 +750,122 @@ export function deleteGarmentType(id) {
   save();
   events.emit('garmentType:deleted', type);
   return true;
+}
+
+/* ============================================================
+   قسم المواسم والأعياد (Occasions) - جديد
+   ============================================================ */
+
+export function getOccasions() { return state.occasions || []; }
+
+export function getOccasion(id) {
+  if (!id) return null;
+  return (state.occasions || []).find(o => o.id === id) || null;
+}
+
+export function addOccasion(occasion) {
+  if (!Array.isArray(state.occasions)) state.occasions = [];
+  const newOccasion = {
+    ...occasion,
+    id: occasion.id || uid(),
+    month: Number(occasion.month) || 1,
+    day: Number(occasion.day) || 1,
+    alertDaysBefore: Number(occasion.alertDaysBefore) || 14,
+    enabled: occasion.enabled !== false,
+    recurring: occasion.recurring !== false,
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  state.occasions.push(newOccasion);
+  save();
+  events.emit('occasion:added', newOccasion);
+  return newOccasion;
+}
+
+export function updateOccasion(id, updates) {
+  const occasion = getOccasion(id);
+  if (!occasion) return null;
+  Object.assign(occasion, updates, { updatedAt: Date.now() });
+  save();
+  events.emit('occasion:updated', occasion);
+  return occasion;
+}
+
+export function deleteOccasion(id) {
+  const idx = (state.occasions || []).findIndex(o => o.id === id);
+  if (idx === -1) return false;
+  const [occasion] = state.occasions.splice(idx, 1);
+  state.trash.push({ id: uid(), type: 'occasion', data: occasion, deletedAt: today() });
+  save();
+  events.emit('occasion:deleted', occasion);
+  return true;
+}
+
+/**
+ * الحصول على المواسم القادمة (خلال X يوم)
+ */
+export function getUpcomingOccasions(daysAhead = 60) {
+  const occasions = state.occasions || [];
+  const todayDate = new Date();
+  const currentYear = todayDate.getFullYear();
+
+  const upcoming = [];
+
+  occasions.forEach(occ => {
+    if (occ.enabled === false) return;
+
+    // احسب تاريخ المناسبة للسنة الحالية
+    let occDate = new Date(currentYear, occ.month - 1, occ.day);
+
+    // إذا مرت المناسبة هذا العام، احسب للسنة القادمة
+    if (occDate < todayDate) {
+      occDate = new Date(currentYear + 1, occ.month - 1, occ.day);
+    }
+
+    const diffDays = Math.ceil((occDate - todayDate) / (1000 * 60 * 60 * 24));
+
+    if (diffDays >= 0 && diffDays <= daysAhead) {
+      upcoming.push({
+        ...occ,
+        nextDate: occDate.toISOString().slice(0, 10),
+        daysLeft: diffDays
+      });
+    }
+  });
+
+  return upcoming.sort((a, b) => a.daysLeft - b.daysLeft);
+}
+
+/**
+ * الحصول على المواسم التي تحتاج تنبيه (خلال alertDaysBefore)
+ */
+export function getOccasionsNeedingAlert() {
+  const occasions = state.occasions || [];
+  const todayDate = new Date();
+  const currentYear = todayDate.getFullYear();
+
+  const alerts = [];
+
+  occasions.forEach(occ => {
+    if (occ.enabled === false) return;
+
+    let occDate = new Date(currentYear, occ.month - 1, occ.day);
+    if (occDate < todayDate) {
+      occDate = new Date(currentYear + 1, occ.month - 1, occ.day);
+    }
+
+    const diffDays = Math.ceil((occDate - todayDate) / (1000 * 60 * 60 * 24));
+
+    if (diffDays >= 0 && diffDays <= (occ.alertDaysBefore || 14)) {
+      alerts.push({
+        ...occ,
+        nextDate: occDate.toISOString().slice(0, 10),
+        daysLeft: diffDays
+      });
+    }
+  });
+
+  return alerts.sort((a, b) => a.daysLeft - b.daysLeft);
 }
 
 /* ============================================================
