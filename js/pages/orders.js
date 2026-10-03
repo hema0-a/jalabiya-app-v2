@@ -1,6 +1,6 @@
 /* ============================================================
-   orders.js - صفحة الطلبات (V2)
-   (النسخة النهائية الشاملة - مُصلحة بالكامل)
+   orders.js - صفحة الطلبات الشاملة (V2)
+   (النسخة الكاملة مع استلام القماش + الرسائل التلقائية)
    ============================================================ */
 
 import * as db from '../core/db.js';
@@ -12,6 +12,12 @@ import { DEFAULT_SETTINGS } from '../core/config.js';
 import * as storage from '../core/storage.js';
 import { previewOrder } from '../ui/quick-preview.js';
 import { groupOrders, getGroupMeasurementsSummary, getGroupStats, getGroupingSettings } from '../core/order-grouping.js';
+import {
+  sendWhatsAppMessage,
+  getMessageLog,
+  canAutoSend
+} from '../core/auto-messages.js';
+import { generatePickupReminderMessage } from '../core/fabric-pickup.js';
 
 /* ============================================================
    الثوابت
@@ -31,15 +37,12 @@ const EXTRA_FEE_TYPES = [
   { id: 'other', label: 'أخرى', icon: '📌', defaultPercent: 0 }
 ];
 
-/* ============================================================
-   حالة الصفحة
-   ============================================================ */
 let searchQuery = '';
 let selectedStatus = 'all';
 let viewMode = 'list';
 
 /* ============================================================
-   دوال مساعدة (على مستوى الملف)
+   دوال مساعدة
    ============================================================ */
 
 function getOrderTotalWorkTime(order) {
@@ -61,6 +64,14 @@ function getDeadlineInfo(order) {
   if (daysLeft === 1) return { type: 'soon', text: 'التسليم غداً', color: '#F57C00', daysLeft };
   if (daysLeft <= 3) return { type: 'near', text: `بعد ${daysLeft} أيام`, color: '#F57C00', daysLeft };
   return { type: 'far', text: `بعد ${daysLeft} يوم`, color: '#2E7D32', daysLeft };
+}
+
+function getPickupInfo(order) {
+  if (!order.receivedDate) return { status: 'pending', text: 'لم يُستلم القماش بعد', color: '#F57C00', icon: '📅' };
+  const daysLeft = daysBetween(order.receivedDate, today());
+  if (daysLeft < 0) return { status: 'overdue', text: `متأخر ${Math.abs(daysLeft)} يوم`, color: '#C62828', icon: '🚨' };
+  if (daysLeft === 0) return { status: 'today', text: 'الاستلام اليوم', color: '#F57C00', icon: '⏰' };
+  return { status: 'scheduled', text: `الاستلام بعد ${daysLeft} يوم`, color: '#1565C0', icon: '📅' };
 }
 
 function getOrderSummary(order) {
@@ -152,9 +163,8 @@ export function renderOrdersPage(container) {
     return daysBetween(o.dueDate, today()) < 0;
   }).length;
 
-  /* ============================================================
-     بناء HTML الصفحة
-     ============================================================ */
+  const pickupPendingCount = allOrders.filter(o => !o.receivedDate && o.status !== 'delivered').length;
+
   let html = `
     <div class="card">
       <div class="flex-between mb-2">
@@ -162,6 +172,7 @@ export function renderOrdersPage(container) {
         <button class="btn btn-primary" id="add-order-btn">+ إضافة طلب</button>
       </div>
 
+      <!-- الحد اليومي -->
       <div class="card" style="background: ${isOverLimit ? 'linear-gradient(135deg, #FFEBEE, #FFCDD2)' : 'linear-gradient(135deg, #E8F5E9, #C8E6C9)'}; border: none; margin-bottom: 12px; padding: 12px;">
         <div class="flex-between" style="margin-bottom: 8px;">
           <div style="font-size: 13px; font-weight: 700; color: ${isOverLimit ? '#B71C1C' : '#1B5E20'};">
@@ -180,6 +191,7 @@ export function renderOrdersPage(container) {
         </div>
       </div>
 
+      <!-- إحصائيات الحالات -->
       <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 12px;">
         <div style="text-align: center; padding: 8px 4px; background: #FFF3E0; border-radius: var(--radius-md);">
           <div style="font-size: 18px; font-weight: 800; color: #E65100;">${stats.pending}</div>
@@ -205,12 +217,20 @@ export function renderOrdersPage(container) {
         </div>
       ` : ''}
 
+      ${pickupPendingCount > 0 ? `
+        <div style="background: #FFF3E0; border-right: 4px solid #F57C00; padding: 10px 12px; border-radius: var(--radius-md); margin-bottom: 12px; font-size: 13px; color: #E65100;">
+          📅 <strong>${pickupPendingCount}</strong> طلب لم يتم استلام القماش بعد.
+        </div>
+      ` : ''}
+
+      <!-- تبديل العرض -->
       <div class="kanban-toggle" style="flex-wrap: wrap;">
         <button class="btn ${viewMode === 'list' ? 'btn-primary' : 'btn-outline'}" id="view-list-btn">📋 قائمة</button>
         <button class="btn ${viewMode === 'kanban' ? 'btn-primary' : 'btn-outline'}" id="view-kanban-btn">🎯 كانبان</button>
         <button class="btn ${viewMode === 'grouping' ? 'btn-primary' : 'btn-outline'}" id="view-grouping-btn" style="font-size: 12px;">🧵 تجميع</button>
       </div>
 
+      <!-- البحث -->
       <div class="form-group" style="margin-bottom: 10px;">
         <input type="text" id="search-order-input" class="form-control" placeholder="🔍 ابحث باسم العميل أو نوع الجلابية..." value="${escapeHtml(searchQuery)}">
       </div>
@@ -261,9 +281,11 @@ export function renderOrdersPage(container) {
       const totalTime = getOrderTotalWorkTime(o);
       const summary = getOrderSummary(o);
       const deadline = getDeadlineInfo(o);
+      const pickup = getPickupInfo(o);
       const hasDiscount = (o.discountAmount || 0) > 0;
       const hasExtraFees = (o.extraFeesTotal || 0) > 0;
       const hasImage = !!o.referenceImage;
+      const hasPickup = !!o.receivedDate;
 
       result += `
         <div class="order-item" data-id="${o.id}" style="border: 1px solid var(--border-color); ${deadline && deadline.type === 'overdue' ? 'border-right: 4px solid #C62828;' : ''} padding: 12px; border-radius: var(--radius-md); background: var(--bg-color); cursor: pointer;">
@@ -275,6 +297,7 @@ export function renderOrdersPage(container) {
               ${hasDiscount ? '<span class="badge" style="background: #FFF8E1; color: #F57F17; margin-right: 6px;">💸 خصم</span>' : ''}
               ${hasExtraFees ? '<span class="badge" style="background: #FFF3E0; color: #E65100; margin-right: 6px;">➕ رسوم</span>' : ''}
               ${hasImage ? '<span class="badge" style="background: #E3F2FD; color: #1565C0; margin-right: 6px;">📷</span>' : ''}
+              ${!hasPickup ? '<span class="badge" style="background: #FFEBEE; color: #C62828; margin-right: 6px;">📅 لم يُستلم</span>' : ''}
             </div>
             <div style="display: flex; gap: 4px; align-items: center;">
               <button class="order-preview-btn" data-id="${o.id}" title="معاينة" style="background: var(--surface-color); color: var(--primary-color); border: 1px solid var(--border-color); padding: 4px 8px; border-radius: var(--radius-md); font-size: 12px; cursor: pointer; min-height: 26px;">👁️</button>
@@ -283,6 +306,7 @@ export function renderOrdersPage(container) {
           </div>
           <div style="font-size:13px; margin-bottom: 6px;">🧵 ${escapeHtml(summary.summary)}</div>
           <div style="font-size:11px; color:var(--text-muted); margin-bottom: 4px;">📦 الكمية: ${summary.totalQty}</div>
+          ${o.receivedDate ? `<div style="font-size: 11px; color: ${pickup.color}; font-weight: 700; margin-bottom: 4px;">${pickup.icon} استلام القماش: ${formatDate(o.receivedDate)} — ${pickup.text}</div>` : `<div style="font-size: 11px; color: #F57C00; font-weight: 700; margin-bottom: 4px;">📅 لم يتم استلام القماش بعد</div>`}
           ${deadline ? `<div style="font-size: 11px; font-weight: 700; color: ${deadline.color}; margin-bottom: 4px;">📅 التسليم: ${formatDate(o.dueDate)} — ${deadline.text}</div>` : ''}
           <div style="font-size:12px; color:var(--text-muted);">
             💰 الإجمالي: ${money(o.totalPrice)} | المدفوع: ${money(o.deposit)} | المتبقي: <span style="color:${remaining > 0 ? '#dc3545' : '#2E7D32'}; font-weight: bold;">${money(remaining)}</span>
@@ -320,9 +344,15 @@ export function renderOrdersPage(container) {
           const timerActive = isOrderTimerActive(o);
           const deadline = getDeadlineInfo(o);
           const summary = getOrderSummary(o);
+          const hasPickup = !!o.receivedDate;
+
           result += `
             <div class="kanban-card" data-id="${o.id}" data-status="${o.status || 'pending'}">
-              <div class="kanban-card-title"><span>👤 ${escapeHtml(custName)}</span>${timerActive ? '<span style="font-size:14px;">⏱️</span>' : ''}</div>
+              <div class="kanban-card-title">
+                <span>👤 ${escapeHtml(custName)}</span>
+                ${timerActive ? '<span style="font-size:14px;">⏱️</span>' : ''}
+                ${!hasPickup ? '<span style="font-size:12px; color:#C62828;">📅</span>' : ''}
+              </div>
               <div class="kanban-card-info">
                 <div class="kanban-card-info-row"><span>🧵 ${escapeHtml(summary.summary.length > 20 ? summary.summary.slice(0, 20) + '...' : summary.summary)}</span><span>×${summary.totalQty}</span></div>
                 <div class="kanban-card-info-row"><span>الإجمالي:</span><span class="kanban-card-price">${money(o.totalPrice)}</span></div>
@@ -448,6 +478,7 @@ export function renderOrdersPage(container) {
     const totalTime = isEdit ? getOrderTotalWorkTime(order) : 0;
     const hasSignature = isEdit && order.signature;
     const garmentTypes = db.getGarmentTypes();
+    const autoSendEnabled = canAutoSend();
 
     let discountType = isEdit ? (order.discountType || 'none') : 'none';
     let discountValue = isEdit ? (order.discountValue || 0) : 0;
@@ -469,6 +500,7 @@ export function renderOrdersPage(container) {
     }
 
     let referenceImage = isEdit ? (order.referenceImage || null) : null;
+    let receivedDate = isEdit ? (order.receivedDate || '') : '';
 
     const customerOptions = customers.map(c => {
       const selected = (isEdit && c.id === order.customerId) ? 'selected' : '';
@@ -481,9 +513,25 @@ export function renderOrdersPage(container) {
       </div>
     `).join('');
 
+    // أزرار الرسائل السريعة (فقط في حالة التعديل)
+    let messagesButtonsHtml = '';
+    if (isEdit && autoSendEnabled) {
+      messagesButtonsHtml = `
+        <div class="card" style="background: linear-gradient(135deg, #E8F5E9, #C8E6C9); border: none; margin-bottom: 12px;">
+          <h4 style="font-size: 13px; margin-bottom: 8px; color: #1B5E20;">💬 رسائل جاهزة للعميل</h4>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+            <button type="button" class="quick-message-btn" data-type="orderCreated" style="padding: 8px; background: white; border: 1px solid #A5D6A7; border-radius: var(--radius-md); font-size: 11px; cursor: pointer; color: #1B5E20; font-weight: 600;">📋 تأكيد الطلب</button>
+            <button type="button" class="quick-message-btn" data-type="orderInProgress" style="padding: 8px; background: white; border: 1px solid #A5D6A7; border-radius: var(--radius-md); font-size: 11px; cursor: pointer; color: #1B5E20; font-weight: 600;">🧵 بدء التنفيذ</button>
+            <button type="button" class="quick-message-btn" data-type="orderReady" style="padding: 8px; background: white; border: 1px solid #A5D6A7; border-radius: var(--radius-md); font-size: 11px; cursor: pointer; color: #1B5E20; font-weight: 600;">✅ جاهز للتسليم</button>
+            <button type="button" class="quick-message-btn" data-type="orderDelivered" style="padding: 8px; background: white; border: 1px solid #A5D6A7; border-radius: var(--radius-md); font-size: 11px; cursor: pointer; color: #1B5E20; font-weight: 600;">🙏 شكر</button>
+          </div>
+        </div>
+      `;
+    }
+
     const formHtml = `
       <h3 class="card-title no-border">${title}</h3>
-      
+
       ${isEdit ? `
         <div style="background: linear-gradient(135deg, #F3E5F5, #E1BEE7); padding: 12px; border-radius: var(--radius-md); margin-bottom: 12px;">
           <div class="flex-between" style="margin-bottom: 8px;">
@@ -497,7 +545,9 @@ export function renderOrdersPage(container) {
           </div>
         </div>
       ` : ''}
-      
+
+      ${messagesButtonsHtml}
+
       <form id="order-form">
         <div class="form-group">
           <label>العميل *</label>
@@ -507,6 +557,7 @@ export function renderOrdersPage(container) {
           </select>
         </div>
 
+        <!-- أنواع الجلابيات -->
         <div style="background: var(--bg-color); padding: 12px; border-radius: var(--radius-md); margin-bottom: 12px;">
           <div class="flex-between" style="margin-bottom: 10px;">
             <h4 style="font-size: 14px; margin: 0; color: var(--primary-dark);">🧵 أنواع الجلابيات</h4>
@@ -515,6 +566,7 @@ export function renderOrdersPage(container) {
           <div id="order-items-container" style="display: flex; flex-direction: column; gap: 10px;"></div>
         </div>
 
+        <!-- الصورة المرجعية -->
         <div class="form-group">
           <label style="display: flex; align-items: center; justify-content: space-between;">
             <span>📷 صورة مرجعية (اختياري)</span>
@@ -528,6 +580,7 @@ export function renderOrdersPage(container) {
           </button>
         </div>
 
+        <!-- الخصم -->
         <div class="form-group">
           <label>💸 الخصم</label>
           <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 8px;">
@@ -540,6 +593,7 @@ export function renderOrdersPage(container) {
           ` : ''}
         </div>
 
+        <!-- الرسوم الإضافية -->
         <div class="form-group">
           <div class="flex-between" style="margin-bottom: 8px;">
             <label style="margin: 0;">➕ الرسوم الإضافية</label>
@@ -551,11 +605,13 @@ export function renderOrdersPage(container) {
           </div>
         </div>
 
+        <!-- المقدم -->
         <div class="form-group">
           <label>المقدم</label>
           <input type="number" id="order-deposit" class="form-control" value="${isEdit ? (order.deposit || 0) : 0}">
         </div>
 
+        <!-- ملخص الحساب -->
         <div style="background: linear-gradient(135deg, var(--primary-color), var(--primary-dark)); border-radius: var(--radius-md); padding: 12px; margin-bottom: 12px; color: white;">
           <div class="flex-between" style="padding: 4px 0; font-size: 13px;">
             <span style="opacity: 0.85;">المجموع الفرعي:</span>
@@ -583,11 +639,15 @@ export function renderOrdersPage(container) {
           </div>
         </div>
 
+        <!-- المواعيد -->
         <div style="background: var(--bg-color); padding: 12px; border-radius: var(--radius-md); margin-bottom: 12px;">
           <h4 style="font-size: 13px; margin-bottom: 10px; color: var(--primary-dark);">📅 المواعيد</h4>
           <div class="form-group" style="margin-bottom: 10px;">
-            <label style="font-size: 12px;">تاريخ استلام القماش</label>
-            <input type="date" id="order-received-date" class="form-control" value="${isEdit ? (order.receivedDate || '') : ''}">
+            <label style="font-size: 12px; display: flex; align-items: center; justify-content: space-between;">
+              <span>📅 تاريخ استلام القماش</span>
+              ${!receivedDate ? `<button type="button" id="mark-received-btn" style="background: var(--primary-color); color: white; border: none; font-size: 11px; cursor: pointer; font-weight: 700; padding: 4px 8px; border-radius: var(--radius-md);">✓ استُلم اليوم</button>` : ''}
+            </label>
+            <input type="date" id="order-received-date" class="form-control" value="${receivedDate}">
           </div>
           <div class="form-group" style="margin-bottom: 0;">
             <label style="font-size: 12px; display: flex; align-items: center; justify-content: space-between;">
@@ -599,12 +659,13 @@ export function renderOrdersPage(container) {
           </div>
         </div>
 
+        <!-- الحالة -->
         <div class="form-group">
           <label>حالة الطلب</label>
           <input type="hidden" id="order-status" value="${currentStatus}">
           <div class="status-selector">${statusOptions}</div>
         </div>
-        
+
         ${isEdit && hasSignature ? `
           <div style="margin-bottom: 12px;">
             <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 6px; display: block;">✍️ توقيع التسليم:</label>
@@ -613,7 +674,7 @@ export function renderOrdersPage(container) {
             </div>
           </div>
         ` : ''}
-        
+
         ${isEdit ? `
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
             <button type="button" class="btn btn-outline" id="print-invoice-btn">🖨️ طباعة</button>
@@ -630,7 +691,7 @@ export function renderOrdersPage(container) {
             </button>
           ` : ''}
         ` : ''}
-        
+
         <div class="flex-between mt-2">
           <div>
             ${isEdit ? `<button type="button" class="btn btn-danger" id="delete-order-btn">حذف</button>` : ''}
@@ -967,14 +1028,14 @@ export function renderOrdersPage(container) {
           if (p) {
             referenceImage = p.image;
             closeModal();
-            setTimeout(() => reopenOrderModal(order, items, discountType, discountValue, extraFees, referenceImage), 200);
+            setTimeout(() => reopenOrderModal(order, items, discountType, discountValue, extraFees, referenceImage, receivedDate), 200);
           }
         });
       });
 
       document.getElementById('cancel-pick-btn').addEventListener('click', () => {
         closeModal();
-        setTimeout(() => reopenOrderModal(order, items, discountType, discountValue, extraFees, referenceImage), 200);
+        setTimeout(() => reopenOrderModal(order, items, discountType, discountValue, extraFees, referenceImage, receivedDate), 200);
       });
     });
 
@@ -983,7 +1044,19 @@ export function renderOrdersPage(container) {
       removeImgBtn.addEventListener('click', () => {
         referenceImage = null;
         closeModal();
-        setTimeout(() => reopenOrderModal(order, items, discountType, discountValue, extraFees, referenceImage), 200);
+        setTimeout(() => reopenOrderModal(order, items, discountType, discountValue, extraFees, referenceImage, receivedDate), 200);
+      });
+    }
+
+    /* ===== زر استلام القماش ===== */
+    const markReceivedBtn = document.getElementById('mark-received-btn');
+    if (markReceivedBtn) {
+      markReceivedBtn.addEventListener('click', () => {
+        const todayStr = today();
+        document.getElementById('order-received-date').value = todayStr;
+        toast.success('تم تسجيل استلام القماش اليوم');
+        // إخفاء الزر بعد الاستخدام
+        markReceivedBtn.style.display = 'none';
       });
     }
 
@@ -1084,6 +1157,19 @@ export function renderOrdersPage(container) {
       });
     }
 
+    /* ===== رسائل جاهزة للعميل (الإرسال التلقائي) ===== */
+    if (isEdit) {
+      document.querySelectorAll('.quick-message-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const messageType = btn.dataset.type;
+          const sent = sendWhatsAppMessage(order.id, messageType);
+          if (sent) {
+            toast.success('تم فتح واتساب بالرسالة');
+          }
+        });
+      });
+    }
+
     /* ===== حفظ النموذج ===== */
     document.getElementById('order-form').addEventListener('submit', (e) => {
       e.preventDefault();
@@ -1091,7 +1177,7 @@ export function renderOrdersPage(container) {
       const customerId = document.getElementById('order-customer').value;
       const deposit = parseFloat(document.getElementById('order-deposit').value) || 0;
       const status = document.getElementById('order-status').value;
-      const receivedDate = document.getElementById('order-received-date').value || null;
+      const newReceivedDate = document.getElementById('order-received-date').value || null;
       const dueDate = document.getElementById('order-due-date').value || null;
 
       if (!customerId) { toast.error('الرجاء اختيار العميل'); return; }
@@ -1131,7 +1217,7 @@ export function renderOrdersPage(container) {
         totalPrice: finalTotal,
         deposit,
         status,
-        receivedDate,
+        receivedDate: newReceivedDate,
         dueDate,
         referenceImage,
         date: isEdit ? (order.date || today()) : today()
@@ -1143,6 +1229,13 @@ export function renderOrdersPage(container) {
       } else {
         db.addOrder(orderData);
         toast.success('تم إضافة الطلب بنجاح');
+
+        // إرسال رسالة تأكيد الطلب تلقائياً
+        if (canAutoSend() && newOrder && customerHasPhone(newOrder, customers)) {
+          setTimeout(() => {
+            sendWhatsAppMessage(newOrder.id, 'orderCreated');
+          }, 500);
+        }
       }
 
       closeModal();
@@ -1174,16 +1267,16 @@ export function renderOrdersPage(container) {
   }
 
   /* ============================================================
-     دالة إعادة فتح النموذج (بعد اختيار صورة)
+     دالة إعادة فتح النموذج
      ============================================================ */
-  function reopenOrderModal(order, items, discountType, discountValue, extraFees, referenceImage) {
+  function reopenOrderModal(order, items, discountType, discountValue, extraFees, referenceImage, receivedDate) {
     if (order) {
       const currentOrder = db.getOrder(order.id);
-      const mergedOrder = { ...currentOrder, items, discountType, discountValue, extraFees, referenceImage };
+      const mergedOrder = { ...currentOrder, items, discountType, discountValue, extraFees, referenceImage, receivedDate };
       openOrderModal(mergedOrder);
     } else {
       openOrderModal({
-        items, discountType, discountValue, extraFees, referenceImage,
+        items, discountType, discountValue, extraFees, referenceImage, receivedDate,
         customerId: '', status: 'pending', date: today()
       });
     }
@@ -1318,22 +1411,24 @@ export function renderOrdersPage(container) {
       if (order) openOrderModal(order);
     });
   });
-// ✅ الاستماع لإجراءات FAB السريعة
-if (window.__ordersQuickListener) {
-  document.removeEventListener('quick-action', window.__ordersQuickListener);
-}
-window.__ordersQuickListener = (e) => {
-  if (e.detail.action === 'new-order') {
-    setTimeout(() => openOrderModal(null), 150);
-  }
-};
-document.addEventListener('quick-action', window.__ordersQuickListener);
-   
-   
+
   container.querySelectorAll('.kanban-card').forEach(card => {
     card.addEventListener('click', () => {
       const order = db.getOrder(card.dataset.id);
       if (order) openOrderModal(order);
     });
   });
+
+  /* ============================================================
+     ربط FAB
+     ============================================================ */
+  if (window.__ordersQuickListener) {
+    document.removeEventListener('quick-action', window.__ordersQuickListener);
+  }
+  window.__ordersQuickListener = (e) => {
+    if (e.detail.action === 'new-order') {
+      setTimeout(() => openOrderModal(null), 150);
+    }
+  };
+  document.addEventListener('quick-action', window.__ordersQuickListener);
 }
