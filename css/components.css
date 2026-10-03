@@ -733,6 +733,40 @@ body.dark-mode .sidebar {
   background: linear-gradient(180deg, #1E1E1E, #121212);
 }
 
+/* ============================================================
+   زر الإجراءات السريعة (FAB)
+   ============================================================ */
+.fab-action-btn:hover {
+  transform: translateX(-4px);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.2);
+}
+
+.fab-action-btn:active {
+  transform: scale(0.96);
+}
+
+/* على الشاشات الكبيرة، اجعل الـ FAB في الزاوية اليمنى السفلى */
+@media (min-width: 768px) {
+  #quick-actions-fab #fab-main-btn {
+    left: auto !important;
+    right: 24px !important;
+  }
+  #quick-actions-fab #fab-menu {
+    left: auto !important;
+    right: 24px !important;
+  }
+}
+
+/* إخفاء الـ FAB عند فتح النافذة المنبثقة */
+body.modal-open #quick-actions-fab {
+  display: none !important;
+}
+
+/* تحسين مظهر الأزرار في الوضع الليلي */
+body.dark-mode .fab-action-btn {
+  background: #2A2A2A;
+  color: #F0F0F0;
+   }
 body.dark-mode .topbar {
   background-color: #1E1E1E;
   border-color: #333;
