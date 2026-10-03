@@ -62,7 +62,13 @@ export function renderSidebar() {
   title: 'التحليل والتقارير',
   items: [
     { path: '/kpis', label: 'مؤشرات الأداء', icon: '📊' },
-    { path: '/reports', label: 'التقارير', icon: '📈' },
+    { path: '/reports', label: 'التقارير', icon: '📈' }
+  ]
+},
+{
+  title: 'النظام',
+  items: [
+    { path: '/cloud-sync', label: 'المزامنة السحابية', icon: '☁️' },
     { path: '/settings', label: 'الإعدادات', icon: '⚙️' }
   ]
 }
