@@ -1,12 +1,13 @@
 /* ============================================================
    payments.js - صفحة الدفعات (V2)
-   (النسخة الكاملة - تشمل ربط FAB)
+   (النسخة الكاملة مع العرض التدريجي)
    ============================================================ */
 
 import * as db from '../core/db.js';
 import { toast } from '../ui/toast.js';
 import { openModal, closeModal } from '../ui/modal.js';
 import { today, money, formatDate, escapeHtml } from '../core/utils.js';
+import { initProgressiveList } from '../core/list-renderer.js';
 
 let searchQuery = '';
 
@@ -47,7 +48,6 @@ export function renderPaymentsPage(container) {
         <button class="btn btn-primary" id="add-payment-btn">+ إضافة دفعة</button>
       </div>
 
-      <!-- الإحصائيات -->
       <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px;">
         <div class="stat-card" style="padding: 10px 6px;">
           <div class="stat-value" style="font-size: 18px; color: var(--primary-color);">${money(totalAmount)}</div>
@@ -63,45 +63,80 @@ export function renderPaymentsPage(container) {
         </div>
       </div>
 
-      <!-- حقل البحث -->
       <div class="form-group" style="margin-bottom: 12px;">
         <input type="text" id="search-payment-input" class="form-control" placeholder="🔍 ابحث باسم العميل أو الملاحظة..." value="${escapeHtml(searchQuery)}">
       </div>
+
+      ${filteredPayments.length > 20 ? `
+        <div style="background: #E3F2FD; padding: 8px 12px; border-radius: var(--radius-md); margin-bottom: 12px; font-size: 12px; color: #1565C0;">
+          ℹ️ يتم عرض 20 دفعة في البداية، وسيتم تحميل المزيد عند التمرير.
+        </div>
+      ` : ''}
+
+      <div id="payments-progressive-list"></div>
+    </div>
   `;
 
-  // عرض الدفعات
-  if (filteredPayments.length === 0) {
-    html += `
-      <div class="empty-state">
-        <div class="empty-state-icon">💰</div>
-        <p>${searchQuery ? 'لا توجد نتائج مطابقة.' : 'لا يوجد دفعات مسجلة حتى الآن.'}</p>
+  container.innerHTML = html;
+
+  /* ============================================================
+     بناء عنصر دفعة واحد
+     ============================================================ */
+  function buildPaymentItem(p) {
+    const order = orders.find(o => o.id === p.orderId);
+    const customer = order ? customers.find(c => c.id === order.customerId) : null;
+    const custName = customer ? customer.name : 'عميل محذوف';
+
+    return `
+      <div class="payment-item" data-id="${p.id}" style="border: 1px solid var(--border-color); border-right: 4px solid var(--primary-color); padding: 12px; border-radius: var(--radius-md); background: var(--bg-color); cursor: pointer; margin-bottom: 8px;">
+        <div class="flex-between" style="margin-bottom: 6px;">
+          <div style="font-weight: bold; font-size: 15px;">👤 ${escapeHtml(custName)}</div>
+          <div style="font-weight: 800; color: var(--primary-color); font-size: 15px;">${money(p.amount)} ج</div>
+        </div>
+        <div style="font-size: 12px; color: var(--text-muted);">
+          📅 ${formatDate(p.date)}${p.note ? ' | 📝 ' + escapeHtml(p.note) : ''}
+        </div>
+        ${order ? `<div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">🧵 ${escapeHtml(order.garmentType || 'طلب')}</div>` : ''}
       </div>
     `;
-  } else {
-    html += `<div style="display: flex; flex-direction: column; gap: 8px;">`;
-    filteredPayments.forEach(p => {
-      const order = orders.find(o => o.id === p.orderId);
-      const customer = order ? customers.find(c => c.id === order.customerId) : null;
-      const custName = customer ? customer.name : 'عميل محذوف';
-
-      html += `
-        <div class="payment-item" data-id="${p.id}" style="border: 1px solid var(--border-color); border-right: 4px solid var(--primary-color); padding: 12px; border-radius: var(--radius-md); background: var(--bg-color); cursor: pointer;">
-          <div class="flex-between" style="margin-bottom: 6px;">
-            <div style="font-weight: bold; font-size: 15px;">👤 ${escapeHtml(custName)}</div>
-            <div style="font-weight: 800; color: var(--primary-color); font-size: 15px;">${money(p.amount)} ج</div>
-          </div>
-          <div style="font-size: 12px; color: var(--text-muted);">
-            📅 ${formatDate(p.date)}${p.note ? ' | 📝 ' + escapeHtml(p.note) : ''}
-          </div>
-          ${order ? `<div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">🧵 ${escapeHtml(order.garmentType || 'طلب')}</div>` : ''}
-        </div>
-      `;
-    });
-    html += `</div>`;
   }
 
-  html += `</div>`;
-  container.innerHTML = html;
+  /* ============================================================
+     استخدام العرض التدريجي
+     ============================================================ */
+  const listContainer = document.getElementById('payments-progressive-list');
+  if (listContainer) {
+    if (filteredPayments.length === 0) {
+      listContainer.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state-icon">💰</div>
+          <p>${searchQuery ? 'لا توجد نتائج مطابقة.' : 'لا يوجد دفعات مسجلة حتى الآن.'}</p>
+        </div>
+      `;
+    } else {
+      initProgressiveList('payments-progressive-list', filteredPayments, buildPaymentItem, {
+        batchSize: 20,
+        emptyMessage: 'لا توجد دفعات'
+      });
+    }
+  }
+
+  /* ============================================================
+     ربط أحداث العناصر المُحمّلة
+     ============================================================ */
+  function bindProgressiveEvents() {
+    container.querySelectorAll('.payment-item').forEach(item => {
+      if (item.dataset.bound === '1') return;
+      item.dataset.bound = '1';
+      item.addEventListener('click', () => {
+        const payment = db.getPayment(item.dataset.id);
+        if (payment) openPaymentDetails(payment);
+      });
+    });
+  }
+
+  setTimeout(bindProgressiveEvents, 100);
+  window.addEventListener('scroll', bindProgressiveEvents, { passive: true });
 
   /* ============================================================
      نموذج إضافة دفعة
@@ -162,10 +197,8 @@ export function renderPaymentsPage(container) {
         return;
       }
 
-      // 1. إضافة الدفعة
       db.addPayment({ orderId, amount, note, date });
 
-      // 2. تحديث الطلب
       const order = db.getOrder(orderId);
       if (order) {
         const newDeposit = (order.deposit || 0) + amount;
@@ -181,7 +214,7 @@ export function renderPaymentsPage(container) {
   }
 
   /* ============================================================
-     عرض تفاصيل دفعة (عند النقر عليها)
+     تفاصيل دفعة
      ============================================================ */
   function openPaymentDetails(payment) {
     const order = orders.find(o => o.id === payment.orderId);
@@ -208,12 +241,10 @@ export function renderPaymentsPage(container) {
 
     document.getElementById('delete-payment-btn').addEventListener('click', () => {
       if (confirm('هل أنت متأكد من حذف هذه الدفعة؟')) {
-        // 1. خصم المبلغ من الطلب
         if (order) {
           const newDeposit = Math.max(0, (order.deposit || 0) - payment.amount);
           db.updateOrder(order.id, { deposit: newDeposit });
         }
-        // 2. حذف الدفعة
         db.deletePayment(payment.id);
         toast.success('تم حذف الدفعة');
         closeModal();
@@ -227,14 +258,9 @@ export function renderPaymentsPage(container) {
   /* ============================================================
      ربط الأحداث
      ============================================================ */
-
-  // زر الإضافة
   const addBtn = container.querySelector('#add-payment-btn');
-  if (addBtn) {
-    addBtn.addEventListener('click', openPaymentModal);
-  }
+  if (addBtn) addBtn.addEventListener('click', openPaymentModal);
 
-  // البحث
   const searchInput = container.querySelector('#search-payment-input');
   if (searchInput) {
     searchInput.addEventListener('input', (e) => {
@@ -249,16 +275,8 @@ export function renderPaymentsPage(container) {
     });
   }
 
-  // النقر على دفعة
-  container.querySelectorAll('.payment-item').forEach(item => {
-    item.addEventListener('click', () => {
-      const payment = db.getPayment(item.dataset.id);
-      if (payment) openPaymentDetails(payment);
-    });
-  });
-
   /* ============================================================
-     ✅ ربط FAB (الإجراءات السريعة)
+     ربط FAB
      ============================================================ */
   if (window.__paymentsQuickListener) {
     document.removeEventListener('quick-action', window.__paymentsQuickListener);
@@ -266,8 +284,8 @@ export function renderPaymentsPage(container) {
   window.__paymentsQuickListener = (e) => {
     if (e.detail.action === 'new-payment') {
       setTimeout(() => {
-        const addBtn = container.querySelector('#add-payment-btn');
-        if (addBtn) addBtn.click();
+        const btn = container.querySelector('#add-payment-btn');
+        if (btn) btn.click();
       }, 150);
     }
   };
