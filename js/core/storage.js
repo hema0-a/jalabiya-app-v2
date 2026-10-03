@@ -86,9 +86,37 @@ export function saveSettings(settings) {
 export function loadSettings() {
   const stored = getItem(APP_CONFIG.settingsKey, null);
   if (!stored || typeof stored !== 'object') {
-    return { ...DEFAULT_SETTINGS };
+    return JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
   }
-  return { ...DEFAULT_SETTINGS, ...stored };
+  // ✅ دمج عميق — يحافظ على القيم المتداخلة (theme, customMeasurementFields, ...)
+  return deepMerge(JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), stored);
+}
+
+/**
+ * دمج عميق لكائنين — يتعامل مع الكائنات المتداخلة والمصفوفات
+ */
+function deepMerge(target, source) {
+  if (Array.isArray(source)) return source.slice();
+  if (source === null || typeof source !== 'object') return source;
+  if (target === null || typeof target !== 'object') return source;
+
+  const result = { ...target };
+  for (const key of Object.keys(source)) {
+    if (source[key] === undefined) continue;
+    if (
+      typeof source[key] === 'object' &&
+      source[key] !== null &&
+      !Array.isArray(source[key]) &&
+      typeof target[key] === 'object' &&
+      target[key] !== null &&
+      !Array.isArray(target[key])
+    ) {
+      result[key] = deepMerge(target[key], source[key]);
+    } else {
+      result[key] = source[key];
+    }
+  }
+  return result;
 }
 
 export function saveSession(session) {
