@@ -1318,7 +1318,18 @@ export function renderOrdersPage(container) {
       if (order) openOrderModal(order);
     });
   });
-
+// ✅ الاستماع لإجراءات FAB السريعة
+if (window.__ordersQuickListener) {
+  document.removeEventListener('quick-action', window.__ordersQuickListener);
+}
+window.__ordersQuickListener = (e) => {
+  if (e.detail.action === 'new-order') {
+    setTimeout(() => openOrderModal(null), 150);
+  }
+};
+document.addEventListener('quick-action', window.__ordersQuickListener);
+   
+   
   container.querySelectorAll('.kanban-card').forEach(card => {
     card.addEventListener('click', () => {
       const order = db.getOrder(card.dataset.id);
