@@ -1,6 +1,6 @@
 /* ============================================================
    sidebar.js - القائمة الجانبية للتنقل (V2)
-   (النسخة النهائية الشاملة)
+   (النسخة الكاملة مع المواسم)
    ============================================================ */
 
 import { router } from './router.js';
@@ -10,8 +10,7 @@ export function renderSidebar() {
   const sidebar = document.createElement('aside');
   sidebar.className = 'sidebar';
   sidebar.id = 'sidebar';
-  
-  // أقسام القائمة
+
   const menuSections = [
     {
       title: 'الرئيسية',
@@ -20,14 +19,14 @@ export function renderSidebar() {
       ]
     },
     {
-  title: 'العمليات',
-  items: [
-    { path: '/customers', label: 'العملاء', icon: '👥' },
-    { path: '/orders', label: 'الطلبات', icon: '📋' },
-    { path: '/calendar', label: 'تقويم المواعيد', icon: '📅' },
-    { path: '/payments', label: 'الدفعات', icon: '💰' }
-  ]
-},
+      title: 'العمليات',
+      items: [
+        { path: '/customers', label: 'العملاء', icon: '👥' },
+        { path: '/orders', label: 'الطلبات', icon: '📋' },
+        { path: '/calendar', label: 'تقويم المواعيد', icon: '📅' },
+        { path: '/payments', label: 'الدفعات', icon: '💰' }
+      ]
+    },
     {
       title: 'إدارة الورشة',
       items: [
@@ -53,6 +52,12 @@ export function renderSidebar() {
       ]
     },
     {
+      title: 'المواسم والمناسبات',
+      items: [
+        { path: '/occasions', label: 'المواسم والأعياد', icon: '🎉' }
+      ]
+    },
+    {
       title: 'النظام',
       items: [
         { path: '/activity-log', label: 'سجل النشاط', icon: '📜' },
@@ -60,20 +65,20 @@ export function renderSidebar() {
       ]
     },
     {
-  title: 'التحليل والتقارير',
-  items: [
-    { path: '/financial-center', label: 'المركز المالي', icon: '💰' },
-    { path: '/kpis', label: 'مؤشرات الأداء', icon: '📊' },
-    { path: '/reports', label: 'التقارير', icon: '📈' }
-  ]
-},
-{
-  title: 'النظام',
-  items: [
-    { path: '/cloud-sync', label: 'المزامنة السحابية', icon: '☁️' },
-    { path: '/settings', label: 'الإعدادات', icon: '⚙️' }
-  ]
-}
+      title: 'التحليل والتقارير',
+      items: [
+        { path: '/financial-center', label: 'المركز المالي', icon: '💰' },
+        { path: '/kpis', label: 'مؤشرات الأداء', icon: '📊' },
+        { path: '/reports', label: 'التقارير', icon: '📈' }
+      ]
+    },
+    {
+      title: 'النظام المتقدم',
+      items: [
+        { path: '/cloud-sync', label: 'المزامنة السحابية', icon: '☁️' },
+        { path: '/settings', label: 'الإعدادات', icon: '⚙️' }
+      ]
+    }
   ];
 
   sidebar.innerHTML = `
@@ -82,7 +87,7 @@ export function renderSidebar() {
     </div>
     <nav class="sidebar-nav">
       ${menuSections.map(section => `
-        <div style="padding: 8px 0;">
+        <div style="padding: 6px 0;">
           <div style="font-size: 11px; color: var(--text-muted); font-weight: 700; padding: 4px 16px; text-transform: uppercase; letter-spacing: 0.5px;">
             ${section.title}
           </div>
@@ -91,6 +96,7 @@ export function renderSidebar() {
               <span class="icon">${item.icon}</span>
               <span class="label">${item.label}</span>
               ${item.path === '/trash' ? `<span id="trash-count-badge" style="background: #dc3545; color: white; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: var(--radius-full); margin-right: auto;"></span>` : ''}
+              ${item.path === '/occasions' ? `<span id="occasions-count-badge" style="background: #F57C00; color: white; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: var(--radius-full); margin-right: auto;"></span>` : ''}
             </a>
           `).join('')}
         </div>
@@ -98,7 +104,7 @@ export function renderSidebar() {
     </nav>
   `;
 
-  // إضافة تفاعل عند النقر على عنصر في القائمة
+  // إضافة تفاعل عند النقر
   sidebar.querySelectorAll('.sidebar-item').forEach(item => {
     item.addEventListener('click', () => {
       if (window.innerWidth <= 768) {
@@ -107,7 +113,7 @@ export function renderSidebar() {
     });
   });
 
-  // تحديث العنصر النشط عند تغيير الصفحة
+  // تحديث العنصر النشط
   events.on(EVENTS.PAGE_CHANGED, (data) => {
     sidebar.querySelectorAll('.sidebar-item').forEach(item => {
       if (item.dataset.path === data.route) {
@@ -116,33 +122,47 @@ export function renderSidebar() {
         item.classList.remove('active');
       }
     });
-    updateTrashBadge();
+    updateBadges();
   });
 
-  // تحديث عداد السلة عند حدوث تغيير
-  events.on('trash:restored', updateTrashBadge);
-  events.on('trash:emptied', updateTrashBadge);
-  events.on('trash:permanentlyDeleted', updateTrashBadge);
+  // تحديث الشارات عند التغييرات
+  events.on('trash:restored', updateBadges);
+  events.on('trash:emptied', updateBadges);
+  events.on('trash:permanentlyDeleted', updateBadges);
+  events.on('occasion:added', updateBadges);
+  events.on('occasion:updated', updateBadges);
+  events.on('occasion:deleted', updateBadges);
 
-  setTimeout(updateTrashBadge, 100);
+  setTimeout(updateBadges, 100);
 
-  function updateTrashBadge() {
-    const badge = document.getElementById('trash-count-badge');
-    if (!badge) return;
-    import('../core/trash.js').then(module => {
-      const count = module.getTrashCount();
-      badge.textContent = count > 0 ? count : '';
-    }).catch(() => {});
+  function updateBadges() {
+    // شارة سلة المحذوفات
+    const trashBadge = document.getElementById('trash-count-badge');
+    if (trashBadge) {
+      import('../core/trash.js').then(module => {
+        const count = module.getTrashCount();
+        trashBadge.textContent = count > 0 ? count : '';
+      }).catch(() => {});
+    }
+
+    // شارة المواسم
+    const occBadge = document.getElementById('occasions-count-badge');
+    if (occBadge) {
+      import('../core/occasions.js').then(module => {
+        const stats = module.getOccasionsStats();
+        occBadge.textContent = stats.alertCount > 0 ? stats.alertCount : '';
+      }).catch(() => {});
+    }
   }
 
   return sidebar;
 }
 
-/* دالة لفتح وإغلاق القائمة من الشريط العلوي */
+/* فتح/إغلاق القائمة */
 export function toggleSidebar() {
   const sidebar = document.getElementById('sidebar');
   if (!sidebar) return;
-  
+
   if (sidebar.classList.contains('open')) {
     closeSidebar();
   } else {
@@ -150,13 +170,12 @@ export function toggleSidebar() {
   }
 }
 
-/* فتح القائمة الجانبية */
 export function openSidebar() {
   const sidebar = document.getElementById('sidebar');
   if (!sidebar) return;
-  
+
   sidebar.classList.add('open');
-  
+
   let backdrop = document.getElementById('sidebar-backdrop');
   if (!backdrop) {
     backdrop = document.createElement('div');
@@ -168,13 +187,12 @@ export function openSidebar() {
   setTimeout(() => backdrop.classList.add('open'), 10);
 }
 
-/* إغلاق القائمة الجانبية */
 export function closeSidebar() {
   const sidebar = document.getElementById('sidebar');
   if (!sidebar) return;
-  
+
   sidebar.classList.remove('open');
-  
+
   const backdrop = document.getElementById('sidebar-backdrop');
   if (backdrop) {
     backdrop.classList.remove('open');
