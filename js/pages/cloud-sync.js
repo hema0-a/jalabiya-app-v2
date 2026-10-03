@@ -15,7 +15,8 @@ import {
   getSavedSession,
   isOnline,
   isAuthReady,
-  initFirebase
+  initFirebase,
+  waitForAuthReady
 } from '../core/cloud-auth.js';
 import {
   initSync,
@@ -43,6 +44,7 @@ export function renderCloudSyncPage(container) {
       </div>
     `;
     initFirebase()
+       .then(() => waitForAuthReady())
       .then(() => renderCloudSyncPage(container))
       .catch(e => {
         console.warn('فشل تهيئة Firebase في صفحة المزامنة:', e);
