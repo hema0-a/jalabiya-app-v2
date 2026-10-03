@@ -71,6 +71,10 @@ export const DEFAULT_SETTINGS = {
   referralRewardPercent: 5,
   trashRetentionDays: 7,
   dailyOrderLimit: 700,
+   // ===== إعدادات تجميع القياسات =====
+enableMeasurementGrouping: false,
+measurementTolerance: 2,
+groupByGarmentType: true,
   dailyOrderCount: 5,
   reminderDaysBefore: 1,
   // ===== جديد: المقاسات القابلة للتخصيص =====
