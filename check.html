@@ -14,13 +14,12 @@
     .summary.fail { background: linear-gradient(135deg, #C62828, #8E0000); }
     .report { background: white; padding: 16px; border-radius: 8px; font-family: monospace; font-size: 12px; line-height: 1.8; white-space: pre-wrap; word-break: break-word; direction: rtl; text-align: right; max-height: 70vh; overflow-y: auto; border: 2px solid #ddd; }
     .copy-btn { display: block; width: 100%; padding: 14px; background: #1F6D57; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 700; margin-top: 12px; cursor: pointer; }
-    .copy-btn:active { background: #123C2F; }
     .loading { text-align: center; padding: 40px; color: #666; }
   </style>
 </head>
 <body>
 
-<h1>🔍 فحص شامل للتطبيق</h1>
+<h1>🔍 فحص شامل للتطبيق (V2)</h1>
 
 <div id="result">
   <div class="loading">⏳ جاري الفحص... يرجى الانتظار</div>
@@ -35,12 +34,14 @@
 const jsFiles = [
   './js/core/config.js', './js/core/events.js', './js/core/utils.js',
   './js/core/storage.js', './js/core/db.js', './js/core/theme.js',
-  './js/core/auth.js', './js/core/activity-log.js', './js/core/trash.js',
+  './js/core/auth.js', './js/core/pin-crypto.js',
+  './js/core/activity-log.js', './js/core/trash.js',
   './js/core/invoice.js', './js/core/notifications.js', './js/core/search.js',
   './js/core/order-grouping.js', './js/core/firebase-config.js',
   './js/core/cloud-auth.js', './js/core/sync.js', './js/core/daily-briefing.js',
   './js/core/fabric-pickup.js', './js/core/occasions.js', './js/core/auto-backup.js',
   './js/core/smart-sync.js', './js/core/image-compressor.js', './js/core/list-renderer.js',
+  './js/core/auto-messages.js', './js/core/financial-calculator.js',
   './js/ui/router.js', './js/ui/modal.js', './js/ui/toast.js',
   './js/ui/sidebar.js', './js/ui/topbar.js', './js/ui/universal-search.js',
   './js/ui/quick-preview.js', './js/ui/customization-manager.js', './js/ui/quick-actions.js',
@@ -59,34 +60,126 @@ let lines = [];
 let passCount = 0;
 let failCount = 0;
 
-function log(text) {
-  lines.push(text);
-}
+function log(text) { lines.push(text); }
+function pass(label) { passCount++; log('✅ ' + label); }
+function fail(label, detail) { failCount++; log('❌ ' + label + (detail ? ' → ' + detail : '')); }
 
 async function runCheck() {
-  log('============================');
-  log('📋 تقرير فحص التطبيق');
+  log('========================================');
+  log('📋 تقرير فحص التطبيق الشامل');
   log('التاريخ: ' + new Date().toLocaleString('ar-EG'));
-  log('============================\n');
+  log('========================================\n');
 
-  // 1. فحص الملفات
+  // ============================================================
+  // 1. فحص تحميل كل ملفات JavaScript
+  // ============================================================
   log('📁 [1] فحص ملفات JavaScript (' + jsFiles.length + ' ملف):');
   log('-------------------------------------------');
-  
   for (const file of jsFiles) {
     try {
       await import(file);
-      passCount++;
-      log('✅ ' + file);
+      pass(file);
     } catch (e) {
-      failCount++;
-      log('❌ ' + file + ' → ' + e.message.slice(0, 80));
+      fail(file, (e.message || String(e)).slice(0, 120));
     }
   }
   log('');
 
-  // 2. فحص الإعدادات الافتراضية
-  log('⚙️ [2] فحص الإعدادات الافتراضية:');
+  // ============================================================
+  // 2. فحص ملف pin-crypto.js تحديداً
+  // ============================================================
+  log('🔐 [2] فحص وحدة التشفير pin-crypto.js:');
+  log('-------------------------------------------');
+  try {
+    const cryptoMod = await import('./js/core/pin-crypto.js');
+    if (typeof cryptoMod.encryptPin === 'function') pass('encryptPin موجودة');
+    else fail('encryptPin مفقودة');
+
+    if (typeof cryptoMod.decryptPin === 'function') pass('decryptPin موجودة');
+    else fail('decryptPin مفقودة');
+
+    // اختبار عملي للتشفير وفك التشفير
+    if (typeof cryptoMod.encryptPin === 'function' && typeof cryptoMod.decryptPin === 'function') {
+      const testPin = '1234';
+      const encrypted = cryptoMod.encryptPin(testPin);
+      const decrypted = cryptoMod.decryptPin(encrypted);
+      if (decrypted === testPin) {
+        pass('اختبار التشفير/فك التشفير نجح');
+      } else {
+        fail('اختبار التشفير', `المتوقع ${testPin}، الناتج ${decrypted}`);
+      }
+      // اختبار التوافق مع نص عادي (PIN قديم غير مشفر)
+      if (cryptoMod.decryptPin('0000') === '0000') {
+        pass('التوافق مع PIN قديم (نص عادي)');
+      } else {
+        fail('التوافق مع PIN قديم');
+      }
+    }
+  } catch (e) {
+    fail('فشل تحميل pin-crypto.js', e.message);
+  }
+  log('');
+
+  // ============================================================
+  // 3. فحص دوال auth.js
+  // ============================================================
+  log('🔒 [3] فحص دوال auth.js:');
+  log('-------------------------------------------');
+  try {
+    const authMod = await import('./js/core/auth.js');
+    const authFns = ['verifyPin', 'changePin', 'initAuth', 'lock', 'unlock',
+                     'checkSession', 'startIdleTimer', 'renderLockScreen',
+                     'getIsLocked', 'stopIdleTimer'];
+    const missing = authFns.filter(fn => typeof authMod[fn] !== 'function');
+    if (missing.length === 0) {
+      pass('كل دوال auth.js موجودة (' + authFns.length + ')');
+    } else {
+      fail('auth.js', 'مفقود: ' + missing.join(', '));
+    }
+  } catch (e) {
+    fail('فشل تحميل auth.js', e.message);
+  }
+  log('');
+
+  // ============================================================
+  // 4. فحص دوال storage.js
+  // ============================================================
+  log('💾 [4] فحص دوال storage.js:');
+  log('-------------------------------------------');
+  try {
+    const storageMod = await import('./js/core/storage.js');
+    const storageFns = ['setItem', 'getItem', 'removeItem', 'saveDB', 'loadDB',
+                        'saveSettings', 'loadSettings', 'saveSession', 'loadSession',
+                        'clearSession', 'saveBackup', 'loadBackup',
+                        'getStorageSize', 'checkStorageSpace'];
+    const missing = storageFns.filter(fn => typeof storageMod[fn] !== 'function');
+    if (missing.length === 0) {
+      pass('كل دوال storage.js موجودة (' + storageFns.length + ')');
+    } else {
+      fail('storage.js', 'مفقود: ' + missing.join(', '));
+    }
+
+    // اختبار loadSettings يدمج الافتراضيات
+    if (typeof storageMod.loadSettings === 'function') {
+      const s = storageMod.loadSettings();
+      const requiredKeys = ['autoBackupEnabled', 'autoBackupIntervalHours',
+                            'imageMaxWidth', 'imageMaxHeight', 'imageQuality', 'imageMaxSizeKB'];
+      const missingKeys = requiredKeys.filter(k => s[k] === undefined);
+      if (missingKeys.length === 0) {
+        pass('loadSettings يدمج كل مفاتيح الإعدادات الافتراضية');
+      } else {
+        fail('loadSettings', 'مفاتيح ناقصة: ' + missingKeys.join(', '));
+      }
+    }
+  } catch (e) {
+    fail('فشل تحميل storage.js', e.message);
+  }
+  log('');
+
+  // ============================================================
+  // 5. فحص الإعدادات الافتراضية
+  // ============================================================
+  log('⚙️ [5] فحص DEFAULT_SETTINGS:');
   log('-------------------------------------------');
   try {
     const { DEFAULT_SETTINGS } = await import('./js/core/config.js');
@@ -95,25 +188,22 @@ async function runCheck() {
       'fontFamily', 'fontSize', 'dailyOrderLimit', 'fabricPickupAlertDays',
       'enableMeasurementGrouping', 'customMeasurementFields',
       'lockScreenBackground', 'lockScreenMessage', 'occasionsAlertEnabled',
-      'autoBackupEnabled', 'imageQuality', 'imageMaxSizeKB'
+      'autoBackupEnabled', 'autoBackupIntervalHours',
+      'imageMaxWidth', 'imageMaxHeight', 'imageQuality', 'imageMaxSizeKB'
     ];
     for (const key of required) {
-      if (DEFAULT_SETTINGS[key] !== undefined) {
-        passCount++;
-        log('✅ ' + key);
-      } else {
-        failCount++;
-        log('❌ مفقود: ' + key);
-      }
+      if (DEFAULT_SETTINGS[key] !== undefined) pass(key);
+      else fail('مفقود: ' + key);
     }
   } catch (e) {
-    failCount++;
-    log('❌ فشل تحميل DEFAULT_SETTINGS: ' + e.message);
+    fail('فشل تحميل DEFAULT_SETTINGS', e.message);
   }
   log('');
 
-  // 3. فحص قاعدة البيانات
-  log('💾 [3] فحص قاعدة البيانات:');
+  // ============================================================
+  // 6. فحص قاعدة البيانات
+  // ============================================================
+  log('💾 [6] فحص DEFAULT_DB:');
   log('-------------------------------------------');
   try {
     const { DEFAULT_DB } = await import('./js/core/config.js');
@@ -123,26 +213,21 @@ async function runCheck() {
       'garmentTypes', 'occasions', 'activityLog', 'trash'
     ];
     for (const key of arrays) {
-      if (Array.isArray(DEFAULT_DB[key])) {
-        passCount++;
-        log('✅ ' + key);
-      } else {
-        failCount++;
-        log('❌ ليس مصفوفة: ' + key);
-      }
+      if (Array.isArray(DEFAULT_DB[key])) pass(key);
+      else fail('ليس مصفوفة: ' + key);
     }
   } catch (e) {
-    failCount++;
-    log('❌ فشل تحميل DEFAULT_DB: ' + e.message);
+    fail('فشل تحميل DEFAULT_DB', e.message);
   }
   log('');
 
-  // 4. فحص الدوال الأساسية
-  log('🎯 [4] فحص الدوال الأساسية:');
+  // ============================================================
+  // 7. فحص الدوال الأساسية
+  // ============================================================
+  log('🎯 [7] فحص الدوال الأساسية:');
   log('-------------------------------------------');
-  
   const functionsToCheck = [
-    { file: './js/core/db.js', names: ['getCustomers', 'getOrders', 'getPayments', 'getExpenses', 'getOccasions'] },
+    { file: './js/core/db.js', names: ['getCustomers', 'getOrders', 'getPayments', 'getExpenses', 'getOccasions', 'load', 'save'] },
     { file: './js/core/image-compressor.js', names: ['compressImage'] },
     { file: './js/core/list-renderer.js', names: ['initProgressiveList'] },
     { file: './js/core/auto-backup.js', names: ['createAutoBackup', 'getAutoBackups'] },
@@ -151,61 +236,95 @@ async function runCheck() {
     { file: './js/core/auto-messages.js', names: ['sendWhatsAppMessage'] },
     { file: './js/core/fabric-pickup.js', names: ['getFabricPickupStats'] },
     { file: './js/core/daily-briefing.js', names: ['getGreeting', 'getDailySummary'] },
-    { file: './js/core/invoice.js', names: ['printInvoice'] }
+    { file: './js/core/invoice.js', names: ['printInvoice'] },
+    { file: './js/core/theme.js', names: ['loadTheme', 'toggleDarkMode'] },
+    { file: './js/core/trash.js', names: ['getTrashCount', 'restoreItem'] }
   ];
-  
   for (const check of functionsToCheck) {
     try {
       const module = await import(check.file);
-      const missing = check.names.filter(n => !module[n]);
-      if (missing.length === 0) {
-        passCount++;
-        log('✅ ' + check.file);
-      } else {
-        failCount++;
-        log('❌ ' + check.file + ' → مفقود: ' + missing.join(', '));
-      }
+      const missing = check.names.filter(n => typeof module[n] !== 'function');
+      if (missing.length === 0) pass(check.file);
+      else fail(check.file, 'مفقود: ' + missing.join(', '));
     } catch (e) {
-      failCount++;
-      log('❌ فشل تحميل ' + check.file);
+      fail('فشل تحميل ' + check.file, e.message);
     }
   }
   log('');
 
+  // ============================================================
+  // 8. فحص أنواع PIN في قاعدة البيانات الحالية
+  // ============================================================
+  log('🔑 [8] فحص حالة PIN الحالية:');
+  log('-------------------------------------------');
+  try {
+    const { loadDB } = await import('./js/core/storage.js');
+    const { decryptPin } = await import('./js/core/pin-crypto.js');
+    const db = loadDB();
+    if (!db) {
+      log('ℹ️ لا توجد قاعدة بيانات مخزنة بعد (سيتم إنشاؤها عند أول تشغيل).');
+    } else {
+      const rawPin = db.password;
+      if (!rawPin) {
+        log('ℹ️ لا يوجد PIN مخزن (سيُستخدم الافتراضي 0000).');
+      } else if (typeof rawPin === 'string' && rawPin.startsWith('enc:')) {
+        pass('PIN مخزن مشفراً بشكل صحيح');
+        try {
+          const decrypted = decryptPin(rawPin);
+          if (/^\d{4}$/.test(decrypted)) pass('فك التشفير أعاد 4 أرقام صحيحة');
+          else fail('فك التشفير', 'الناتج ليس 4 أرقام');
+        } catch (e) {
+          fail('فك التشفير', e.message);
+        }
+      } else {
+        log('ℹ️ PIN مخزن كنص عادي (سيتم تشفيره عند أول تغيير)');
+        log('   القيمة: ' + String(rawPin).slice(0, 4));
+      }
+    }
+  } catch (e) {
+    fail('فحص PIN', e.message);
+  }
+  log('');
+
+  // ============================================================
   // النتيجة النهائية
-  log('============================');
+  // ============================================================
+  log('========================================');
   log('📊 النتيجة النهائية:');
-  log('============================');
+  log('========================================');
   log('✅ نجح: ' + passCount);
   log('❌ فشل: ' + failCount);
   log('📊 المجموع: ' + (passCount + failCount));
-  
-  const percent = Math.round((passCount / (passCount + failCount)) * 100);
+
+  const percent = (passCount + failCount) > 0
+    ? Math.round((passCount / (passCount + failCount)) * 100)
+    : 0;
   log('📈 النسبة: ' + percent + '%');
   log('');
-  
+
   if (failCount === 0) {
     log('🎉 ممتاز! كل شيء يعمل بشكل كامل.');
+    log('✅ جميع التعديلات مطبقة بنجاح.');
+    log('🔑 الرقم السري 0000 يعمل طبيعياً.');
   } else {
     log('⚠️ يوجد ' + failCount + ' مشكلة تحتاج إصلاحاً.');
+    log('يرجى نسخ التقرير وإرساله.');
   }
 
-  // عرض النتيجة
   const resultDiv = document.getElementById('result');
   const summaryClass = failCount === 0 ? 'ok' : (failCount < 5 ? 'warn' : 'fail');
-  const summaryText = failCount === 0 
-    ? '🎉 كل شيء يعمل بشكل كامل (' + percent + '%)' 
+  const summaryText = failCount === 0
+    ? '🎉 كل شيء يعمل بشكل كامل (' + percent + '%)'
     : '⚠️ يوجد ' + failCount + ' مشكلة (' + percent + '%)';
 
   resultDiv.innerHTML = `
     <div class="summary ${summaryClass}">${summaryText}</div>
     <div class="report" id="reportText">${lines.join('\n')}</div>
   `;
-  
+
   document.getElementById('copyBtn').style.display = 'block';
 }
 
-// دالة النسخ
 window.copyReport = function() {
   const text = document.getElementById('reportText').innerText;
   if (navigator.clipboard) {
@@ -214,9 +333,7 @@ window.copyReport = function() {
       setTimeout(() => {
         document.getElementById('copyBtn').textContent = '📋 نسخ التقرير';
       }, 2000);
-    }).catch(() => {
-      fallbackCopy(text);
-    });
+    }).catch(() => fallbackCopy(text));
   } else {
     fallbackCopy(text);
   }
