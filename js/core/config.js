@@ -89,6 +89,12 @@ export const DEFAULT_SETTINGS = {
   lockScreenBackground: null,
   lockScreenMessage: 'أدخل الرقم السري للدخول',
   lockScreenShowLogo: true,
+   autoBackupEnabled: true,
+autoBackupIntervalHours: 24,
+imageMaxWidth: 1024,
+imageMaxHeight: 1024,
+imageQuality: 0.8,
+imageMaxSizeKB: 500,
   enableMeasurementGrouping: false,
   measurementTolerance: 2,
   groupByGarmentType: true,
@@ -294,3 +300,6 @@ export const TRASH_ITEM_TYPES = {
   garmentType: { label: 'نوع جلابية', icon: '👔', color: '#C62828' },
   occasion: { label: 'مناسبة', icon: '🎉', color: '#2E7D32' }
 };
+export function getSettings(loadedSettings = {}) {
+    return { ...DEFAULT_SETTINGS, ...loadedSettings };
+}
