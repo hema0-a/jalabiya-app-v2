@@ -18,6 +18,9 @@ export function renderSettingsPage(container) {
   const currentName = settings.workshopName || DEFAULT_SETTINGS.workshopName;
   const referralPercent = settings.referralRewardPercent || 5;
    const dailyLimit = settings.dailyOrderLimit || 700;
+   const groupingEnabled = settings.enableMeasurementGrouping === true;
+const groupingTolerance = settings.measurementTolerance || 2;
+const groupByGarmentType = settings.groupByGarmentType !== false;
 
   container.innerHTML = `
     <div class="card">
@@ -71,6 +74,43 @@ export function renderSettingsPage(container) {
   </div>
   
   <button class="btn btn-primary btn-full" id="save-daily-limit-btn">حفظ الحد اليومي</button>
+</div>
+<!-- ============================================================
+     تجميع القياسات المتقاربة (جديد)
+     ============================================================ -->
+<div class="card" style="background: var(--bg-color); border: none; margin-bottom: 16px;">
+  <h3 style="font-size: 16px; margin-bottom: 12px;">🧵 تجميع الطلبات المتشابهة</h3>
+  <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
+    تجميع تلقائي للطلبات ذات القياسات المتقاربة، لتسهيل تصنيعها معاً وتوفير الوقت والقماش.
+  </p>
+  
+  <label style="display: flex; align-items: center; justify-content: space-between; cursor: pointer; padding: 10px; background: var(--surface-color); border-radius: var(--radius-md); border: 1px solid var(--border-color); margin-bottom: 12px;">
+    <span>
+      <strong>تفعيل التجميع</strong>
+      <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">عرض زر "🧵 تجميع" في صفحة الطلبات</div>
+    </span>
+    <input type="checkbox" id="grouping-enabled" ${groupingEnabled ? 'checked' : ''} style="width: 22px; height: 22px; cursor: pointer;">
+  </label>
+
+  <div id="grouping-options" style="display: ${groupingEnabled ? 'block' : 'none'};">
+    <div class="form-group">
+      <label>نسبة التقارب (بـ السنتيمتر) *</label>
+      <input type="number" id="grouping-tolerance" class="form-control" value="${groupingTolerance}" min="1" max="20" step="0.5">
+      <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+        💡 مثال: 2 يعني القياسات بين (X-2) و (X+2) تُعتبر متقاربة.
+      </div>
+    </div>
+    
+    <label style="display: flex; align-items: center; justify-content: space-between; cursor: pointer; padding: 10px; background: var(--surface-color); border-radius: var(--radius-md); border: 1px solid var(--border-color); margin-bottom: 12px;">
+      <span>
+        <strong>نفس النوع فقط</strong>
+        <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">تجميع الطلبات من نفس نوع الجلابية فقط</div>
+      </span>
+      <input type="checkbox" id="grouping-by-type" ${groupByGarmentType ? 'checked' : ''} style="width: 22px; height: 22px; cursor: pointer;">
+    </label>
+  </div>
+
+  <button class="btn btn-primary btn-full" id="save-grouping-btn">حفظ إعدادات التجميع</button>
 </div>
 <!-- ============================================================
      حقول المقاسات (جديد)
@@ -265,6 +305,39 @@ if (saveDailyLimitBtn) {
     s.dailyOrderLimit = value;
     storage.saveSettings(s);
     toast.success('تم حفظ الحد اليومي بنجاح');
+  });
+}
+// ============================================================
+// تجميع القياسات
+// ============================================================
+const groupingEnabledCheckbox = container.querySelector('#grouping-enabled');
+const groupingOptions = container.querySelector('#grouping-options');
+
+if (groupingEnabledCheckbox) {
+  groupingEnabledCheckbox.addEventListener('change', (e) => {
+    groupingOptions.style.display = e.target.checked ? 'block' : 'none';
+  });
+}
+
+const saveGroupingBtn = container.querySelector('#save-grouping-btn');
+if (saveGroupingBtn) {
+  saveGroupingBtn.addEventListener('click', () => {
+    const enabled = container.querySelector('#grouping-enabled').checked;
+    const tolerance = parseFloat(container.querySelector('#grouping-tolerance').value) || 2;
+    const byType = container.querySelector('#grouping-by-type').checked;
+    
+    if (enabled && (tolerance < 1 || tolerance > 20)) {
+      toast.error('نسبة التقارب يجب أن تكون بين 1 و 20 سم');
+      return;
+    }
+    
+    let s = storage.loadSettings() || { ...DEFAULT_SETTINGS };
+    s.enableMeasurementGrouping = enabled;
+    s.measurementTolerance = tolerance;
+    s.groupByGarmentType = byType;
+    storage.saveSettings(s);
+    
+    toast.success('تم حفظ إعدادات التجميع بنجاح');
   });
 }
 
