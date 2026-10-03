@@ -1,12 +1,19 @@
 /* ============================================================
-   dashboard.js - لوحة التحكم الاحترافية (V2)
-   (إجراءات سريعة + تنبيهات + مواعيد + إحصائيات شاملة)
+   dashboard.js - لوحة التحكم الديناميكية (V2)
+   (النسخة الكاملة الشاملة)
    ============================================================ */
 
 import * as db from '../core/db.js';
 import { money, today, formatDate, daysBetween } from '../core/utils.js';
 import { DEFAULT_SETTINGS } from '../core/config.js';
 import * as storage from '../core/storage.js';
+import {
+  getGreeting,
+  getDailySummary,
+  getActivityTips,
+  getNextAction,
+  getProductivityLevel
+} from '../core/daily-briefing.js';
 
 export function renderDashboardPage(container) {
   const orders = db.getOrders();
@@ -17,8 +24,15 @@ export function renderDashboardPage(container) {
   const settings = storage.loadSettings() || { ...DEFAULT_SETTINGS };
 
   // ============================================================
-  // الإحصائيات العامة
+  // البيانات الديناميكية
   // ============================================================
+  const greeting = getGreeting(settings.ownerName || settings.workshopName);
+  const summary = getDailySummary();
+  const tips = getActivityTips();
+  const nextAction = getNextAction();
+  const productivity = getProductivityLevel();
+
+  // إحصائيات عامة
   const totalCustomers = customers.length;
   const totalOrders = orders.length;
   const totalRevenue = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
@@ -26,46 +40,7 @@ export function renderDashboardPage(container) {
   const netProfit = totalRevenue - totalExpenses;
   const totalRemaining = orders.reduce((sum, o) => sum + Math.max(0, (o.totalPrice || 0) - (o.deposit || 0)), 0);
 
-  // ============================================================
-  // إحصائيات الشهر الحالي
-  // ============================================================
-  const todayDate = new Date();
-  const currentMonth = todayDate.getMonth();
-  const currentYear = todayDate.getFullYear();
-
-  const monthlyOrders = orders.filter(o => {
-    const d = new Date(o.date || o.createdAt);
-    return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-  });
-  const monthlyRevenue = payments.filter(p => {
-    const d = new Date(p.date || p.createdAt);
-    return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-  }).reduce((sum, p) => sum + (p.amount || 0), 0);
-
-  // ============================================================
-  // مواعيد اليوم والمتأخرة
-  // ============================================================
-  const todayStr = today();
-  const todayDueOrders = orders.filter(o => o.dueDate === todayStr && o.status !== 'delivered');
-  const overdueOrders = orders.filter(o => {
-    if (o.status === 'delivered' || !o.dueDate) return false;
-    return daysBetween(o.dueDate, today()) < 0;
-  });
-  const tomorrowDueOrders = orders.filter(o => {
-    if (o.status === 'delivered' || !o.dueDate) return false;
-    return daysBetween(o.dueDate, today()) === 1;
-  });
-
-  // ============================================================
-  // تنبيهات المخزون
-  // ============================================================
-  const lowStockItems = inventory.filter(i =>
-    (i.quantity || 0) <= (i.minQuantity || 0) && (i.minQuantity || 0) > 0
-  );
-
-  // ============================================================
-  // إحصائيات الطلبات حسب الحالة
-  // ============================================================
+  // إحصائيات الطلبات
   const ordersByStatus = {
     pending: orders.filter(o => (o.status || 'pending') === 'pending').length,
     in_progress: orders.filter(o => o.status === 'in_progress').length,
@@ -73,57 +48,104 @@ export function renderDashboardPage(container) {
     delivered: orders.filter(o => o.status === 'delivered').length
   };
 
+  // المواعيد القادمة
+  const todayStr = today();
+  const tomorrowStr = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    const p = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  })();
+
+  const dueToday = orders.filter(o => o.dueDate === todayStr && o.status !== 'delivered');
+  const dueTomorrow = orders.filter(o => o.dueDate === tomorrowStr && o.status !== 'delivered');
+  const overdueOrders = orders.filter(o => {
+    if (o.status === 'delivered' || !o.dueDate) return false;
+    return daysBetween(o.dueDate, todayStr) < 0;
+  });
+
+  const lowStockItems = inventory.filter(i =>
+    (i.quantity || 0) <= (i.minQuantity || 0) && (i.minQuantity || 0) > 0
+  );
+
   // ============================================================
   // بناء الواجهة
   // ============================================================
   let html = `
     <!-- ============================================================
-         البطاقة الترحيبية
+         البطاقة الترحيبية الديناميكية
          ============================================================ -->
     <div class="card" style="background: linear-gradient(135deg, var(--primary-color), var(--primary-dark)); color: white; border: none;">
-      <h2 style="color: white; margin-bottom: 4px;">أهلاً بك 👋</h2>
-      <p style="color: rgba(255,255,255,0.8); margin: 0 0 16px 0; font-size: 13px;">
-        ${greetingText()} — نظرة سريعة على ورشتك اليوم
-      </p>
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+        <div style="flex: 1;">
+          <h2 style="color: white; margin-bottom: 4px; font-size: 20px;">
+            ${greeting.icon} ${greeting.text}
+          </h2>
+          <p style="color: rgba(255,255,255,0.85); margin: 0; font-size: 13px;">
+            ${getMotivationalMessage(greeting.mood)}
+          </p>
+        </div>
+        <div style="text-align: center; padding: 8px 12px; background: rgba(255,255,255,0.15); border-radius: var(--radius-md);">
+          <div style="font-size: 24px;">${productivity.icon}</div>
+          <div style="font-size: 10px; font-weight: 700; margin-top: 2px;">${productivity.level}</div>
+        </div>
+      </div>
 
-      <!-- إجراءات سريعة -->
-      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
-        <a href="#/orders" class="quick-action" style="background: rgba(255,255,255,0.2); border-radius: var(--radius-md); padding: 10px 6px; text-align: center; color: white; text-decoration: none; display: block; transition: all 0.2s;">
-          <div style="font-size: 22px;">📋</div>
-          <div style="font-size: 10px; margin-top: 4px; font-weight: 600;">طلب جديد</div>
-        </a>
-        <a href="#/customers" class="quick-action" style="background: rgba(255,255,255,0.2); border-radius: var(--radius-md); padding: 10px 6px; text-align: center; color: white; text-decoration: none; display: block; transition: all 0.2s;">
-          <div style="font-size: 22px;">👤</div>
-          <div style="font-size: 10px; margin-top: 4px; font-weight: 600;">عميل جديد</div>
-        </a>
-        <a href="#/payments" class="quick-action" style="background: rgba(255,255,255,0.2); border-radius: var(--radius-md); padding: 10px 6px; text-align: center; color: white; text-decoration: none; display: block; transition: all 0.2s;">
-          <div style="font-size: 22px;">💰</div>
-          <div style="font-size: 10px; margin-top: 4px; font-weight: 600;">دفعة جديدة</div>
-        </a>
-        <a href="#/expenses" class="quick-action" style="background: rgba(255,255,255,0.2); border-radius: var(--radius-md); padding: 10px 6px; text-align: center; color: white; text-decoration: none; display: block; transition: all 0.2s;">
-          <div style="font-size: 22px;">💸</div>
-          <div style="font-size: 10px; margin-top: 4px; font-weight: 600;">مصروف</div>
-        </a>
+      <!-- الإجراء المقترح التالي -->
+      <a href="#${nextAction.route}" style="display: block; text-decoration: none; background: rgba(255,255,255,0.2); border-radius: var(--radius-md); padding: 12px; margin-top: 8px; backdrop-filter: blur(10px);">
+        <div class="flex-between">
+          <div style="display: flex; align-items: center; gap: 10px; flex: 1;">
+            <div style="font-size: 24px;">${nextAction.icon}</div>
+            <div style="flex: 1;">
+              <div style="color: white; font-weight: 800; font-size: 14px; margin-bottom: 2px;">${nextAction.title}</div>
+              <div style="color: rgba(255,255,255,0.8); font-size: 11px;">${nextAction.subtitle}</div>
+            </div>
+          </div>
+          <div style="color: rgba(255,255,255,0.9); font-size: 18px;">←</div>
+        </div>
+      </a>
+    </div>
+
+    <!-- ============================================================
+         ملخص اليوم (بطاقات سريعة)
+         ============================================================ -->
+    <div class="card" style="background: linear-gradient(135deg, #F5F5F5, #E8E8E8); border: none;">
+      <h3 style="font-size: 14px; margin-bottom: 12px; color: var(--primary-dark);">📊 ملخص اليوم</h3>
+      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;">
+        <div style="text-align: center; padding: 10px 4px; background: white; border-radius: var(--radius-md);">
+          <div style="font-size: 18px; font-weight: 800; color: var(--primary-color);">${summary.ordersAddedToday}</div>
+          <div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">طلبات جديدة</div>
+        </div>
+        <div style="text-align: center; padding: 10px 4px; background: white; border-radius: var(--radius-md);">
+          <div style="font-size: 18px; font-weight: 800; color: #F57C00;">${summary.dueToday}</div>
+          <div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">للتسليم</div>
+        </div>
+        <div style="text-align: center; padding: 10px 4px; background: white; border-radius: var(--radius-md);">
+          <div style="font-size: 18px; font-weight: 800; color: #2E7D32;">${money(summary.todayRevenue)}</div>
+          <div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">إيرادات</div>
+        </div>
+        <div style="text-align: center; padding: 10px 4px; background: white; border-radius: var(--radius-md);">
+          <div style="font-size: 18px; font-weight: 800; color: #dc3545;">${money(summary.todayExpenses)}</div>
+          <div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">مصروفات</div>
+        </div>
       </div>
     </div>
   `;
 
   // ============================================================
-  // تنبيهات عاجلة (Overdue + Today + Low Stock)
+  // تنبيهات عاجلة
   // ============================================================
   if (overdueOrders.length > 0) {
     html += `
-      <div class="card" style="background: linear-gradient(135deg, #FFEBEE, #FFCDD2); border: none; margin-bottom: 12px; cursor: pointer;" id="alert-overdue">
-        <div class="flex-between" style="align-items: flex-start;">
-          <div style="flex: 1;">
+      <div class="card" style="background: linear-gradient(135deg, #FFEBEE, #FFCDD2); border: none; cursor: pointer;" onclick="location.hash='/orders'">
+        <div class="flex-between">
+          <div>
             <div style="font-size: 14px; font-weight: 800; color: #B71C1C; margin-bottom: 4px;">
               🚨 ${overdueOrders.length} ${overdueOrders.length === 1 ? 'طلب متأخر' : 'طلبات متأخرة'}
             </div>
-            <div style="font-size: 12px; color: #C62828;">
-              بحاجة إلى انتباه فوري — اضغط للعرض
-            </div>
+            <div style="font-size: 12px; color: #C62828;">اضغط للعرض الفوري</div>
           </div>
-          <div style="background: #C62828; color: white; padding: 4px 10px; border-radius: var(--radius-full); font-weight: 700; font-size: 12px;">
+          <div style="background: #C62828; color: white; padding: 6px 12px; border-radius: var(--radius-full); font-weight: 800; font-size: 14px;">
             ${overdueOrders.length}
           </div>
         </div>
@@ -131,20 +153,18 @@ export function renderDashboardPage(container) {
     `;
   }
 
-  if (todayDueOrders.length > 0) {
+  if (dueToday.length > 0) {
     html += `
-      <div class="card" style="background: linear-gradient(135deg, #FFF3E0, #FFE0B2); border: none; margin-bottom: 12px; cursor: pointer;" id="alert-today">
-        <div class="flex-between" style="align-items: flex-start;">
-          <div style="flex: 1;">
+      <div class="card" style="background: linear-gradient(135deg, #FFF3E0, #FFE0B2); border: none; cursor: pointer;" onclick="location.hash='/orders'">
+        <div class="flex-between">
+          <div>
             <div style="font-size: 14px; font-weight: 800; color: #E65100; margin-bottom: 4px;">
-              ⏰ ${todayDueOrders.length} ${todayDueOrders.length === 1 ? 'طلب للتسليم اليوم' : 'طلبات للتسليم اليوم'}
+              ⏰ ${dueToday.length} ${dueToday.length === 1 ? 'طلب للتسليم اليوم' : 'طلبات للتسليم اليوم'}
             </div>
-            <div style="font-size: 12px; color: #EF6C00;">
-              تأكد من جاهزيتها قبل التسليم
-            </div>
+            <div style="font-size: 12px; color: #EF6C00;">تأكد من جاهزيتها</div>
           </div>
-          <div style="background: #E65100; color: white; padding: 4px 10px; border-radius: var(--radius-full); font-weight: 700; font-size: 12px;">
-            ${todayDueOrders.length}
+          <div style="background: #E65100; color: white; padding: 6px 12px; border-radius: var(--radius-full); font-weight: 800; font-size: 14px;">
+            ${dueToday.length}
           </div>
         </div>
       </div>
@@ -153,19 +173,47 @@ export function renderDashboardPage(container) {
 
   if (lowStockItems.length > 0) {
     html += `
-      <div class="card" style="background: linear-gradient(135deg, #FCE4EC, #F8BBD0); border: none; margin-bottom: 12px; cursor: pointer;" id="alert-lowstock">
-        <div class="flex-between" style="align-items: flex-start;">
+      <div class="card" style="background: linear-gradient(135deg, #FCE4EC, #F8BBD0); border: none; cursor: pointer;" onclick="location.hash='/inventory'">
+        <div class="flex-between">
           <div style="flex: 1;">
             <div style="font-size: 14px; font-weight: 800; color: #AD1457; margin-bottom: 4px;">
-              📦 ${lowStockItems.length} ${lowStockItems.length === 1 ? 'عنصر ناقص' : 'عناصر ناقصة'} في المخزون
+              📦 ${lowStockItems.length} ${lowStockItems.length === 1 ? 'عنصر ناقص' : 'عناصر ناقصة'}
             </div>
-            <div style="font-size: 12px; color: #C2185B;">
+            <div style="font-size: 11px; color: #C2185B;">
               ${lowStockItems.slice(0, 3).map(i => i.name).join(' • ')}${lowStockItems.length > 3 ? ' ...' : ''}
             </div>
           </div>
-          <div style="background: #AD1457; color: white; padding: 4px 10px; border-radius: var(--radius-full); font-weight: 700; font-size: 12px;">
+          <div style="background: #AD1457; color: white; padding: 6px 12px; border-radius: var(--radius-full); font-weight: 800; font-size: 14px;">
             ${lowStockItems.length}
           </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // ============================================================
+  // النصائح الذكية
+  // ============================================================
+  if (tips.length > 0) {
+    html += `
+      <div class="card">
+        <h3 class="card-title" style="font-size: 15px;">💡 نصائح ذكية لك</h3>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          ${tips.map(tip => {
+            const colors = {
+              danger: { bg: '#FFEBEE', border: '#C62828', text: '#B71C1C' },
+              warning: { bg: '#FFF3E0', border: '#F57C00', text: '#E65100' },
+              success: { bg: '#E8F5E9', border: '#2E7D32', text: '#1B5E20' },
+              info: { bg: '#E3F2FD', border: '#1565C0', text: '#0D47A1' }
+            };
+            const c = colors[tip.type] || colors.info;
+            return `
+              <div style="background: ${c.bg}; border-right: 4px solid ${c.border}; padding: 10px 12px; border-radius: var(--radius-md); display: flex; gap: 10px; align-items: flex-start;">
+                <div style="font-size: 18px; flex-shrink: 0;">${tip.icon}</div>
+                <div style="flex: 1; font-size: 13px; color: ${c.text}; line-height: 1.5;">${tip.text}</div>
+              </div>
+            `;
+          }).join('')}
         </div>
       </div>
     `;
@@ -185,11 +233,11 @@ export function renderDashboardPage(container) {
         <div class="stat-label">📋 طلب</div>
       </div>
       <div class="stat-card">
-        <div class="stat-value" style="color: var(--accent-color); font-size: 20px;">${money(totalRevenue)}</div>
+        <div class="stat-value" style="color: var(--accent-color); font-size: 18px;">${money(totalRevenue)}</div>
         <div class="stat-label">💰 الإيرادات</div>
       </div>
       <div class="stat-card">
-        <div class="stat-value" style="color: ${netProfit >= 0 ? 'var(--primary-color)' : '#dc3545'}; font-size: 20px;">
+        <div class="stat-value" style="color: ${netProfit >= 0 ? 'var(--primary-color)' : '#dc3545'}; font-size: 18px;">
           ${money(netProfit)}
         </div>
         <div class="stat-label">${netProfit >= 0 ? '✨ صافي الربح' : '⚠️ الخسارة'}</div>
@@ -197,7 +245,7 @@ export function renderDashboardPage(container) {
     </div>
 
     ${totalRemaining > 0 ? `
-      <div class="card" style="background: linear-gradient(135deg, #FFF8E1, #FFECB3); border: none; margin-bottom: 16px; padding: 12px;">
+      <div class="card" style="background: linear-gradient(135deg, #FFF8E1, #FFECB3); border: none; padding: 12px;">
         <div class="flex-between">
           <div>
             <div style="font-size: 12px; color: #F57F17; font-weight: 700; margin-bottom: 2px;">💸 إجمالي المتبقي على العملاء</div>
@@ -212,7 +260,7 @@ export function renderDashboardPage(container) {
   `;
 
   // ============================================================
-  // إحصائيات الطلبات حسب الحالة
+  // حالة الطلبات
   // ============================================================
   html += `
     <div class="card">
@@ -239,13 +287,13 @@ export function renderDashboardPage(container) {
   `;
 
   // ============================================================
-  // مواعيد قادمة (غداً)
+  // تسليمات الغد
   // ============================================================
-  if (tomorrowDueOrders.length > 0) {
+  if (dueTomorrow.length > 0) {
     html += `
       <div class="card">
         <h3 class="card-title" style="font-size: 15px;">📅 تسليمات الغد</h3>
-        ${tomorrowDueOrders.slice(0, 3).map(o => {
+        ${dueTomorrow.slice(0, 3).map(o => {
           const customer = customers.find(c => c.id === o.customerId);
           const custName = customer ? customer.name : 'عميل محذوف';
           return `
@@ -263,18 +311,22 @@ export function renderDashboardPage(container) {
   }
 
   // ============================================================
-  // إحصائيات الشهر
+  // مؤشر الإنتاجية الأسبوعي
   // ============================================================
   html += `
     <div class="card">
-      <h3 class="card-title" style="font-size: 15px;">📅 إحصائيات الشهر</h3>
-      <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border-color); font-size: 13px;">
-        <span style="color: var(--text-muted);">📋 طلبات الشهر:</span>
-        <strong>${monthlyOrders.length}</strong>
+      <h3 class="card-title" style="font-size: 15px;">📈 إنتاجية الأسبوع</h3>
+      <div style="margin-bottom: 8px;">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 12px;">
+          <span style="color: var(--text-muted);">${productivity.icon} ${productivity.level}</span>
+          <strong style="color: ${productivity.color};">${productivity.percent}%</strong>
+        </div>
+        <div style="background: var(--border-color); height: 10px; border-radius: var(--radius-full); overflow: hidden;">
+          <div style="width: ${productivity.percent}%; height: 100%; background: linear-gradient(90deg, ${productivity.color}, ${productivity.color}cc); border-radius: var(--radius-full); transition: width 0.6s;"></div>
+        </div>
       </div>
-      <div style="display: flex; justify-content: space-between; padding: 8px 0; font-size: 13px;">
-        <span style="color: var(--text-muted);">💰 إيرادات الشهر:</span>
-        <strong style="color: var(--primary-color);">${money(monthlyRevenue)} جنيه</strong>
+      <div style="font-size: 11px; color: var(--text-muted); text-align: center; margin-top: 8px;">
+        ${getProductivityMessage(productivity.level)}
       </div>
     </div>
   `;
@@ -321,48 +373,34 @@ export function renderDashboardPage(container) {
         <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
           ابدأ بإضافة أول عميل لك، ثم أضف طلباً.
         </p>
-        <a href="#/customers" class="btn btn-primary" style="text-decoration: none;">+ إضافة أول عميل</a>
+        <a href="#/customers" class="btn btn-primary" style="text-decoration: none; display: inline-block;">+ إضافة أول عميل</a>
       </div>
     `;
   }
 
   container.innerHTML = html;
-
-  // ============================================================
-  // ربط التنبيهات
-  // ============================================================
-  const overdueAlert = container.querySelector('#alert-overdue');
-  if (overdueAlert) {
-    overdueAlert.addEventListener('click', () => {
-      window.location.hash = '/orders';
-    });
-  }
-
-  const todayAlert = container.querySelector('#alert-today');
-  if (todayAlert) {
-    todayAlert.addEventListener('click', () => {
-      window.location.hash = '/orders';
-    });
-  }
-
-  const lowStockAlert = container.querySelector('#alert-lowstock');
-  if (lowStockAlert) {
-    lowStockAlert.addEventListener('click', () => {
-      window.location.hash = '/inventory';
-    });
-  }
-
-  // تأثير عند التمرير على الإجراءات السريعة
-  container.querySelectorAll('.quick-action').forEach(el => {
-    el.addEventListener('touchstart', () => { el.style.transform = 'scale(0.95)'; });
-    el.addEventListener('touchend', () => { el.style.transform = 'scale(1)'; });
-  });
 }
 
-/* رسالة ترحيب حسب الوقت */
-function greetingText() {
-  const hour = new Date().getHours();
-  if (hour < 12) return 'صباح الخير ☀️';
-  if (hour < 17) return 'مساء الخير 🌤️';
-  return 'مساء الخير 🌙';
+/* ============================================================
+   دوال مساعدة
+   ============================================================ */
+
+function getMotivationalMessage(mood) {
+  const messages = {
+    morning: 'ابدأ يومك بطلب جديد 🌟',
+    afternoon: 'واصل الإنجاز، أنت في منتصف اليوم 💪',
+    evening: 'وقت مراجعة ما تم إنجازه اليوم 📋',
+    night: 'ارتاح، وغداً يوم جديد ✨'
+  };
+  return messages[mood] || 'أهلاً بك في لوحة التحكم';
+}
+
+function getProductivityMessage(level) {
+  const messages = {
+    'عالي': '🔥 أداء استثنائي! استمر في هذا المستوى.',
+    'متوسط': '⚡ أداء جيد، يمكنك تحقيق أفضل.',
+    'عادي': '📊 ابدأ بتسريع وتيرة العمل.',
+    'منخفض': '💡 حاول إضافة المزيد من الطلبات هذا الأسبوع.'
+  };
+  return messages[level] || 'استمر في العمل الجيد';
 }
