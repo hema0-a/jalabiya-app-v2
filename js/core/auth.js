@@ -1,11 +1,12 @@
 /* ============================================================
    auth.js - نظام القفل والتحقق (V2)
-   (مُحدَّث: Rate Limiting دائم + شاشة قفل مخصصة)
+   (مُحدَّث: Rate Limiting دائم + شاشة قفل + تشفير PIN)
    ============================================================ */
 
 import { APP_CONFIG, DEFAULT_DB, DEFAULT_SETTINGS } from './config.js';
 import * as storage from './storage.js';
 import { events, EVENTS } from './events.js';
+import { encryptPin, decryptPin } from './pin-crypto.js';
 
 /* ============================================================
    حالة النظام (State)
@@ -14,7 +15,7 @@ let idleTimer = null;
 let isLocked = true;
 
 /* ============================================================
-   Rate Limiting - مخزّن بشكل دائم (لا يُمسح بإعادة التحميل)
+   Rate Limiting - مخزّن بشكل دائم
    ============================================================ */
 const FAILED_ATTEMPTS_KEY = 'jalabiya_v2_failed_attempts';
 
@@ -23,7 +24,6 @@ function loadFailedAttempts() {
     const raw = localStorage.getItem(FAILED_ATTEMPTS_KEY);
     if (!raw) return { count: 0, until: 0, timestamp: 0 };
     const data = JSON.parse(raw);
-    // نسيان المحاولات بعد 24 ساعة
     if (data.timestamp && Date.now() - data.timestamp > 86400000) {
       localStorage.removeItem(FAILED_ATTEMPTS_KEY);
       return { count: 0, until: 0, timestamp: 0 };
@@ -59,7 +59,6 @@ function clearFailedAttempts() {
 export function verifyPin(inputPin) {
   const attemptData = loadFailedAttempts();
 
-  // 1. التحقق من وجود حظر مؤقت
   if (attemptData.until && Date.now() < attemptData.until) {
     const remaining = Math.ceil((attemptData.until - Date.now()) / 1000);
     return {
@@ -68,7 +67,6 @@ export function verifyPin(inputPin) {
     };
   }
 
-  // 2. التحقق من صيغة PIN (4 أرقام)
   if (!/^\d{4}$/.test(String(inputPin))) {
     return {
       success: false,
@@ -76,11 +74,9 @@ export function verifyPin(inputPin) {
     };
   }
 
-  // 3. جلب PIN الصحيح من قاعدة البيانات
   const db = storage.loadDB() || { ...DEFAULT_DB };
-  const correctPin = db.password || DEFAULT_DB.password;
+  const correctPin = decryptPin(db.password) || DEFAULT_DB.password;
 
-  // 4. مقارنة PIN
   if (String(inputPin) === String(correctPin)) {
     clearFailedAttempts();
     saveSession(true);
@@ -105,16 +101,11 @@ export function verifyPin(inputPin) {
   }
 }
 
-/**
- * تغيير الـ PIN
- * @param {string} newPin - الرقم الجديد (4 أرقام)
- * @returns {boolean} نجاح العملية
- */
 export function changePin(newPin) {
   if (!/^\d{4}$/.test(String(newPin))) return false;
 
   const db = storage.loadDB() || { ...DEFAULT_DB };
-  db.password = String(newPin);
+  db.password = encryptPin(String(newPin));
   db.updatedAt = Date.now();
   storage.saveDB(db);
   clearFailedAttempts();
@@ -324,7 +315,7 @@ export function renderLockScreen() {
 }
 
 /* ============================================================
-   عرض شاشة القفل وتهيئة النظام
+   تهيئة النظام
    ============================================================ */
 
 export function initAuth() {
