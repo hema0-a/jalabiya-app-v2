@@ -3,7 +3,7 @@
    (النسخة الكاملة مع المواسم)
    ============================================================ */
 
-import { APP_CONFIG, DEFAULT_DB, DEFAULT_OCCASIONS } from './config.js';
+import { APP_CONFIG, DEFAULT_DB, DEFAULT_OCCASIONS, getSettings } from './config.js';
 import * as storage from './storage.js';
 import { events, EVENTS } from './events.js';
 import { deepClone, uid, today } from './utils.js';
@@ -81,6 +81,10 @@ function mergeWithDefaults(saved) {
    'occasions', 'holidays', 'activityLog', 'trash'].forEach(key => {
     if (!Array.isArray(merged[key])) merged[key] = [];
   });
+  
+  // --- إصلاح دمج الإعدادات (هذا هو السطر المصلح) ---
+  merged.settings = getSettings(merged.settings || {});
+  
   return merged;
 }
 
