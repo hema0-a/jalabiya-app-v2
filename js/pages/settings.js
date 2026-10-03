@@ -1,7 +1,6 @@
 /* ============================================================
    settings.js - صفحة الإعدادات الشاملة النهائية (V2)
-   (جميع الأقسام: معلومات + مواسم + رسائل + نسخ + ألوان + ثيمات
-    + خلفيات + أيقونات + خطوط + أوضاع + أمان + منطقة خطر)
+   (مع إعدادات ضغط الصور)
    ============================================================ */
 
 import * as db from '../core/db.js';
@@ -16,7 +15,8 @@ import { APP_CONFIG, DEFAULT_SETTINGS } from '../core/config.js';
 import * as storage from '../core/storage.js';
 import { escapeHtml, formatDate } from '../core/utils.js';
 import { getOccasionsStats, getOccasionIcon, getTimeUntilOccasion } from '../core/occasions.js';
-import { getBackupsStats, getTimeSinceLastBackup } from '../core/auto-backup.js';
+import { getBackupsStats } from '../core/auto-backup.js';
+import { getCompressionSettings, saveCompressionSettings } from '../core/image-compressor.js';
 
 export function renderSettingsPage(container) {
   const settings = storage.loadSettings() || { ...DEFAULT_SETTINGS };
@@ -37,12 +37,15 @@ export function renderSettingsPage(container) {
   const occasionsStats = getOccasionsStats();
   const backupsStats = getBackupsStats();
   const autoBackupEnabled = settings.autoBackupEnabled !== false;
+  const compressionSettings = getCompressionSettings();
 
   container.innerHTML = `
     <div class="card">
       <h2 class="card-title">⚙️ الإعدادات</h2>
 
-      <!-- معلومات الورشة -->
+      <!-- ============================================================
+           معلومات الورشة
+           ============================================================ -->
       <div class="card" style="background: var(--bg-color); border: none; margin-bottom: 16px;">
         <h3 style="font-size: 16px; margin-bottom: 12px;">🏢 معلومات الورشة</h3>
         <div class="form-group">
@@ -62,15 +65,15 @@ export function renderSettingsPage(container) {
         <button class="btn btn-primary btn-full" id="save-info-btn">حفظ المعلومات</button>
       </div>
 
-      <!-- المواسم والأعياد -->
+      <!-- ============================================================
+           المواسم والأعياد
+           ============================================================ -->
       <div class="card" style="background: linear-gradient(135deg, #FFF8E1, #FFECB3); border: none; margin-bottom: 16px;">
         <div class="flex-between" style="margin-bottom: 12px;">
           <h3 style="font-size: 16px; margin: 0;">🎉 المواسم والأعياد</h3>
           <span class="badge" style="background: var(--accent-color); color: white;">${occasionsStats.enabled} مفعّلة</span>
         </div>
-        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
-          تسجيل المواسم والأعياد لتنبيهك قبلها استعداداً للطلبات.
-        </p>
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">تسجيل المواسم والأعياد لتنبيهك قبلها استعداداً للطلبات.</p>
         ${occasionsStats.next ? `
           <div style="background: white; padding: 10px 12px; border-radius: var(--radius-md); margin-bottom: 12px;">
             <div class="flex-between">
@@ -88,44 +91,36 @@ export function renderSettingsPage(container) {
             </div>
           </div>
         ` : ''}
-        ${occasionsStats.alertCount > 0 ? `
-          <div style="background: #FFEBEE; border-right: 4px solid #C62828; padding: 8px 12px; border-radius: var(--radius-md); margin-bottom: 12px; font-size: 12px; color: #B71C1C;">
-            🚨 <strong>${occasionsStats.alertCount}</strong> مناسبة تحتاج انتباهك!
-          </div>
-        ` : ''}
         <label style="display: flex; align-items: center; justify-content: space-between; padding: 10px; background: white; border-radius: var(--radius-md); cursor: pointer; margin-bottom: 12px;">
-          <span>
-            <strong>🔔 تفعيل تنبيهات المواسم</strong>
-            <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">عرض التنبيهات في الرئيسية</div>
-          </span>
+          <span><strong>🔔 تفعيل تنبيهات المواسم</strong><div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">عرض التنبيهات في الرئيسية</div></span>
           <input type="checkbox" id="occasions-alert-enabled" ${occasionsAlertEnabled ? 'checked' : ''} style="width: 22px; height: 22px; cursor: pointer;">
         </label>
         <a href="#/occasions" class="btn btn-primary btn-full" style="text-decoration: none; display: block; text-align: center;">🎉 إدارة المواسم والأعياد</a>
       </div>
 
-      <!-- الرسائل التلقائية -->
+      <!-- ============================================================
+           الرسائل التلقائية
+           ============================================================ -->
       <div class="card" style="background: linear-gradient(135deg, #E3F2FD, #BBDEFB); border: none; margin-bottom: 16px;">
         <div class="flex-between" style="margin-bottom: 12px;">
           <h3 style="font-size: 16px; margin: 0;">💬 الرسائل التلقائية</h3>
           <span class="badge" style="background: #1565C0; color: white;">واتساب</span>
         </div>
-        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
-          أرسل رسائل جاهزة للعملاء عبر واتساب عند تغيير حالة الطلب.
-        </p>
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">أرسل رسائل جاهزة للعملاء عبر واتساب عند تغيير حالة الطلب.</p>
         <div style="background: white; padding: 10px 12px; border-radius: var(--radius-md); margin-bottom: 12px;">
-          <div style="font-size: 12px; font-weight: 700; color: #1565C0; margin-bottom: 6px;">📋 القوالب المتاحة:</div>
           <div style="display: flex; flex-wrap: wrap; gap: 6px;">
             <span style="background: #E3F2FD; color: #1565C0; padding: 4px 10px; border-radius: var(--radius-full); font-size: 11px; font-weight: 700;">📋 تأكيد الطلب</span>
             <span style="background: #E3F2FD; color: #1565C0; padding: 4px 10px; border-radius: var(--radius-full); font-size: 11px; font-weight: 700;">🧵 بدء التنفيذ</span>
-            <span style="background: #E3F2FD; color: #1565C0; padding: 4px 10px; border-radius: var(--radius-full); font-size: 11px; font-weight: 700;">✅ جاهز للتسليم</span>
+            <span style="background: #E3F2FD; color: #1565C0; padding: 4px 10px; border-radius: var(--radius-full); font-size: 11px; font-weight: 700;">✅ جاهز</span>
             <span style="background: #E3F2FD; color: #1565C0; padding: 4px 10px; border-radius: var(--radius-full); font-size: 11px; font-weight: 700;">🙏 شكر</span>
-            <span style="background: #E3F2FD; color: #1565C0; padding: 4px 10px; border-radius: var(--radius-full); font-size: 11px; font-weight: 700;">💰 تذكير بالدفع</span>
           </div>
         </div>
         <a href="#/auto-messages-settings" class="btn btn-primary btn-full" style="text-decoration: none; display: block; text-align: center; background: linear-gradient(135deg, #1565C0, #0D47A1);">💬 إدارة الرسائل التلقائية</a>
       </div>
 
-      <!-- النسخ الاحتياطية (جديد) -->
+      <!-- ============================================================
+           النسخ الاحتياطية
+           ============================================================ -->
       <div class="card" style="background: linear-gradient(135deg, #E0F2F1, #B2DFDB); border: none; margin-bottom: 16px;">
         <div class="flex-between" style="margin-bottom: 12px;">
           <h3 style="font-size: 16px; margin: 0;">💾 النسخ الاحتياطية</h3>
@@ -133,9 +128,7 @@ export function renderSettingsPage(container) {
             ${autoBackupEnabled ? '✓ تلقائي' : '✗ معطّل'}
           </span>
         </div>
-        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
-          نسخ تلقائية دورية تحمي بياناتك من الفقدان. يمكنك الاسترجاع من أي نسخة سابقة.
-        </p>
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">نسخ تلقائية دورية تحمي بياناتك.</p>
         <div style="background: white; padding: 10px 12px; border-radius: var(--radius-md); margin-bottom: 12px;">
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px;">
             <div>
@@ -151,7 +144,75 @@ export function renderSettingsPage(container) {
         <a href="#/backups" class="btn btn-primary btn-full" style="text-decoration: none; display: block; text-align: center; background: linear-gradient(135deg, #00695C, #004D40);">💾 إدارة النسخ الاحتياطية</a>
       </div>
 
-      <!-- الألوان -->
+      <!-- ============================================================
+           ضغط الصور (جديد)
+           ============================================================ -->
+      <div class="card" style="background: linear-gradient(135deg, #F3E5F5, #E1BEE7); border: none; margin-bottom: 16px;">
+        <div class="flex-between" style="margin-bottom: 12px;">
+          <h3 style="font-size: 16px; margin: 0;">🗜️ ضغط الصور</h3>
+          <span class="badge" style="background: #6A1B9A; color: white;">توفير المساحة</span>
+        </div>
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
+          يتم ضغط كل صورة ترفعها تلقائياً (معرض الأعمال، الشعار، شاشة القفل، الصور المرجعية) لتوفير المساحة.
+        </p>
+
+        <div style="background: white; padding: 10px 12px; border-radius: var(--radius-md); margin-bottom: 12px; font-size: 12px;">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <div>
+              <div style="color: var(--text-muted);">📐 العرض الأقصى:</div>
+              <div style="font-weight: 800; color: #6A1B9A;">${compressionSettings.maxWidth}px</div>
+            </div>
+            <div>
+              <div style="color: var(--text-muted);">📐 الطول الأقصى:</div>
+              <div style="font-weight: 800; color: #6A1B9A;">${compressionSettings.maxHeight}px</div>
+            </div>
+            <div>
+              <div style="color: var(--text-muted);">🎨 الجودة:</div>
+              <div style="font-weight: 800; color: #6A1B9A;">${Math.round(compressionSettings.quality * 100)}%</div>
+            </div>
+            <div>
+              <div style="color: var(--text-muted);">💾 الحجم الأقصى:</div>
+              <div style="font-weight: 800; color: #6A1B9A;">${compressionSettings.maxSizeKB}KB</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>جودة الصورة (بعد الضغط)</label>
+          <select id="compression-quality" class="form-control">
+            <option value="0.6" ${compressionSettings.quality === 0.6 ? 'selected' : ''}>منخفضة (60%) — توفير أقصى</option>
+            <option value="0.75" ${compressionSettings.quality === 0.75 ? 'selected' : ''}>متوسطة (75%) — متوازن ⭐</option>
+            <option value="0.85" ${compressionSettings.quality === 0.85 ? 'selected' : ''}>عالية (85%) — جودة عالية</option>
+            <option value="0.95" ${compressionSettings.quality === 0.95 ? 'selected' : ''}>ممتازة (95%) — أعلى جودة</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>الحجم الأقصى للصورة الواحدة</label>
+          <select id="compression-maxsize" class="form-control">
+            <option value="200" ${compressionSettings.maxSizeKB === 200 ? 'selected' : ''}>200 KB (توفير أقصى)</option>
+            <option value="500" ${compressionSettings.maxSizeKB === 500 ? 'selected' : ''}>500 KB (متوازن) ⭐</option>
+            <option value="800" ${compressionSettings.maxSizeKB === 800 ? 'selected' : ''}>800 KB (جودة عالية)</option>
+            <option value="1500" ${compressionSettings.maxSizeKB === 1500 ? 'selected' : ''}>1.5 MB (بدون ضغط قوي)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>الأبعاد القصوى</label>
+          <select id="compression-dimensions" class="form-control">
+            <option value="800" ${compressionSettings.maxWidth === 800 ? 'selected' : ''}>صغير (800×800)</option>
+            <option value="1200" ${compressionSettings.maxWidth === 1200 ? 'selected' : ''}>متوسط (1200×1200) ⭐</option>
+            <option value="1600" ${compressionSettings.maxWidth === 1600 ? 'selected' : ''}>كبير (1600×1600)</option>
+            <option value="2000" ${compressionSettings.maxWidth === 2000 ? 'selected' : ''}>كبير جداً (2000×2000)</option>
+          </select>
+        </div>
+
+        <button class="btn btn-primary btn-full" id="save-compression-btn" style="background: linear-gradient(135deg, #6A1B9A, #4A148C);">💾 حفظ إعدادات الضغط</button>
+      </div>
+
+      <!-- ============================================================
+           الألوان
+           ============================================================ -->
       <div class="card" style="background: var(--bg-color); border: none; margin-bottom: 16px;">
         <h3 style="font-size: 16px; margin-bottom: 12px;">🎨 تخصيص الألوان</h3>
         <div class="form-group">
@@ -170,7 +231,9 @@ export function renderSettingsPage(container) {
         <button class="btn btn-outline btn-full mt-2" id="reset-theme-btn">استعادة الافتراضية</button>
       </div>
 
-      <!-- الثيمات الجاهزة -->
+      <!-- ============================================================
+           الثيمات الجاهزة
+           ============================================================ -->
       <div class="card" style="background: var(--bg-color); border: none; margin-bottom: 16px;">
         <h3 style="font-size: 16px; margin-bottom: 12px;">🎨 الثيمات الجاهزة</h3>
         <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
@@ -190,7 +253,9 @@ export function renderSettingsPage(container) {
         </div>
       </div>
 
-      <!-- الخلفيات الإبداعية -->
+      <!-- ============================================================
+           الخلفيات الإبداعية
+           ============================================================ -->
       <div class="card" style="background: var(--bg-color); border: none; margin-bottom: 16px;">
         <h3 style="font-size: 16px; margin-bottom: 12px;">🖼️ الخلفيات الإبداعية</h3>
         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
@@ -207,7 +272,9 @@ export function renderSettingsPage(container) {
         </div>
       </div>
 
-      <!-- أنماط الأيقونات -->
+      <!-- ============================================================
+           أنماط الأيقونات
+           ============================================================ -->
       <div class="card" style="background: var(--bg-color); border: none; margin-bottom: 16px;">
         <h3 style="font-size: 16px; margin-bottom: 12px;">🎯 أنماط الأيقونات</h3>
         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
@@ -224,7 +291,9 @@ export function renderSettingsPage(container) {
         </div>
       </div>
 
-      <!-- الخطوط -->
+      <!-- ============================================================
+           الخطوط
+           ============================================================ -->
       <div class="card" style="background: var(--bg-color); border: none; margin-bottom: 16px;">
         <h3 style="font-size: 16px; margin-bottom: 12px;">🔤 تخصيص الخطوط</h3>
         <div class="form-group">
@@ -251,7 +320,9 @@ export function renderSettingsPage(container) {
         <button class="btn btn-outline btn-full mt-2" id="reset-font-btn">استعادة الافتراضي</button>
       </div>
 
-      <!-- أوضاع العرض -->
+      <!-- ============================================================
+           أوضاع العرض
+           ============================================================ -->
       <div class="card" style="background: var(--bg-color); border: none; margin-bottom: 16px;">
         <h3 style="font-size: 16px; margin-bottom: 12px;">👁️ أوضاع العرض</h3>
         <div class="form-group">
@@ -280,7 +351,9 @@ export function renderSettingsPage(container) {
         </div>
       </div>
 
-      <!-- الحد اليومي -->
+      <!-- ============================================================
+           الحد اليومي
+           ============================================================ -->
       <div class="card" style="background: var(--bg-color); border: none; margin-bottom: 16px;">
         <h3 style="font-size: 16px; margin-bottom: 12px;">📊 الحد اليومي والتنبيهات</h3>
         <div class="form-group">
@@ -294,7 +367,9 @@ export function renderSettingsPage(container) {
         <button class="btn btn-primary btn-full" id="save-daily-limit-btn">حفظ الإعدادات</button>
       </div>
 
-      <!-- تجميع القياسات -->
+      <!-- ============================================================
+           تجميع القياسات
+           ============================================================ -->
       <div class="card" style="background: var(--bg-color); border: none; margin-bottom: 16px;">
         <h3 style="font-size: 16px; margin-bottom: 12px;">🧵 تجميع الطلبات المتشابهة</h3>
         <label style="display: flex; align-items: center; justify-content: space-between; cursor: pointer; padding: 10px; background: var(--surface-color); border-radius: var(--radius-md); border: 1px solid var(--border-color); margin-bottom: 12px;">
@@ -314,7 +389,9 @@ export function renderSettingsPage(container) {
         <button class="btn btn-primary btn-full" id="save-grouping-btn">حفظ الإعدادات</button>
       </div>
 
-      <!-- شاشة القفل -->
+      <!-- ============================================================
+           شاشة القفل
+           ============================================================ -->
       <div class="card" style="background: var(--bg-color); border: none; margin-bottom: 16px;">
         <h3 style="font-size: 16px; margin-bottom: 12px;">🔒 تخصيص شاشة القفل</h3>
         <div class="form-group">
@@ -339,19 +416,20 @@ export function renderSettingsPage(container) {
         <button class="btn btn-primary btn-full" id="save-lock-screen-btn">حفظ الإعدادات</button>
       </div>
 
-      <!-- الأمان -->
+      <!-- ============================================================
+           الأمان
+           ============================================================ -->
       <div class="card" style="background: var(--bg-color); border: none; margin-bottom: 16px;">
         <h3 style="font-size: 16px; margin-bottom: 12px;">🔒 الأمان</h3>
         <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">قم بتغيير الرقم السري (PIN) لحماية التطبيق.</p>
         <button class="btn btn-primary btn-full" id="change-pin-btn">🔑 تغيير الرقم السري</button>
       </div>
 
-      <!-- النسخ والاستيراد (JSON) -->
+      <!-- ============================================================
+           تصدير/استيراد JSON
+           ============================================================ -->
       <div class="card" style="background: var(--bg-color); border: none; margin-bottom: 16px;">
         <h3 style="font-size: 16px; margin-bottom: 12px;">💾 تصدير/استيراد JSON</h3>
-        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
-          تصدير بياناتك كملف JSON أو استيرادها من ملف سابق.
-        </p>
         <div style="display: flex; flex-direction: column; gap: 10px;">
           <button class="btn btn-primary" id="export-btn">📤 تصدير البيانات</button>
           <label for="import-file" class="btn btn-outline" style="cursor: pointer; text-align: center; display: block;">📥 استيراد البيانات</label>
@@ -359,7 +437,9 @@ export function renderSettingsPage(container) {
         </div>
       </div>
 
-      <!-- منطقة الخطر -->
+      <!-- ============================================================
+           منطقة الخطر
+           ============================================================ -->
       <div class="card" style="background: #fff5f5; border: 1px solid #f5c6cb; border-radius: var(--radius-lg);">
         <h3 style="font-size: 16px; color: #dc3545; margin-bottom: 12px;">⚠️ منطقة الخطر</h3>
         <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">حذف جميع البيانات نهائياً. لا يمكن التراجع.</p>
@@ -369,7 +449,7 @@ export function renderSettingsPage(container) {
   `;
 
   /* ============================================================
-     ربط الأحداث
+     معلومات الورشة
      ============================================================ */
   const logoInput = container.querySelector('#logo-file');
   const logoPreview = container.querySelector('#logo-preview');
@@ -417,7 +497,9 @@ export function renderSettingsPage(container) {
     setTimeout(() => window.location.reload(), 800);
   });
 
-  // المواسم
+  /* ============================================================
+     المواسم
+     ============================================================ */
   const occToggle = container.querySelector('#occasions-alert-enabled');
   if (occToggle) {
     occToggle.addEventListener('change', (e) => {
@@ -428,7 +510,31 @@ export function renderSettingsPage(container) {
     });
   }
 
-  // الألوان
+  /* ============================================================
+     ضغط الصور (جديد)
+     ============================================================ */
+  const saveCompressionBtn = container.querySelector('#save-compression-btn');
+  if (saveCompressionBtn) {
+    saveCompressionBtn.addEventListener('click', () => {
+      const quality = parseFloat(container.querySelector('#compression-quality').value);
+      const maxSizeKB = parseInt(container.querySelector('#compression-maxsize').value);
+      const dimensions = parseInt(container.querySelector('#compression-dimensions').value);
+
+      saveCompressionSettings({
+        quality,
+        maxSizeKB,
+        maxWidth: dimensions,
+        maxHeight: dimensions
+      });
+
+      toast.success('تم حفظ إعدادات ضغط الصور');
+      renderSettingsPage(container);
+    });
+  }
+
+  /* ============================================================
+     الألوان
+     ============================================================ */
   container.querySelector('#save-theme-btn').addEventListener('click', () => {
     saveTheme({
       primary: document.getElementById('color-primary').value,
@@ -446,7 +552,9 @@ export function renderSettingsPage(container) {
     }
   });
 
-  // الثيمات
+  /* ============================================================
+     الثيمات
+     ============================================================ */
   container.querySelectorAll('.theme-preset-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const preset = btn.dataset.preset;
@@ -460,7 +568,9 @@ export function renderSettingsPage(container) {
     });
   });
 
-  // الخلفيات
+  /* ============================================================
+     الخلفيات
+     ============================================================ */
   container.querySelectorAll('.bg-select-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const bgId = btn.dataset.bg;
@@ -470,7 +580,9 @@ export function renderSettingsPage(container) {
     });
   });
 
-  // أنماط الأيقونات
+  /* ============================================================
+     أنماط الأيقونات
+     ============================================================ */
   container.querySelectorAll('.icon-style-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const styleId = btn.dataset.style;
@@ -480,7 +592,9 @@ export function renderSettingsPage(container) {
     });
   });
 
-  // الخطوط
+  /* ============================================================
+     الخطوط
+     ============================================================ */
   const saveFontBtn = container.querySelector('#save-font-btn');
   if (saveFontBtn) {
     saveFontBtn.addEventListener('click', () => {
@@ -503,7 +617,9 @@ export function renderSettingsPage(container) {
     });
   }
 
-  // أوضاع العرض
+  /* ============================================================
+     أوضاع العرض
+     ============================================================ */
   container.querySelector('#toggle-dark').addEventListener('change', (e) => {
     setDisplayMode('darkMode', e.target.checked);
     const btn = document.getElementById('dark-mode-toggle');
@@ -518,7 +634,9 @@ export function renderSettingsPage(container) {
     toast.info(e.target.checked ? 'وضع العميل مفعّل' : 'وضع العميل ملغي');
   });
 
-  // الحد اليومي
+  /* ============================================================
+     الحد اليومي
+     ============================================================ */
   const saveDailyBtn = container.querySelector('#save-daily-limit-btn');
   if (saveDailyBtn) {
     saveDailyBtn.addEventListener('click', () => {
@@ -533,7 +651,9 @@ export function renderSettingsPage(container) {
     });
   }
 
-  // التجميع
+  /* ============================================================
+     التجميع
+     ============================================================ */
   const groupingChk = container.querySelector('#grouping-enabled');
   const groupingOptions = container.querySelector('#grouping-options');
   if (groupingChk) {
@@ -561,7 +681,9 @@ export function renderSettingsPage(container) {
     });
   }
 
-  // شاشة القفل
+  /* ============================================================
+     شاشة القفل
+     ============================================================ */
   let tempLockBg = lockBg;
   const lockBgFile = container.querySelector('#lock-bg-file');
   const lockBgPreview = container.querySelector('#lock-bg-preview');
@@ -609,7 +731,9 @@ export function renderSettingsPage(container) {
     });
   }
 
-  // PIN
+  /* ============================================================
+     PIN
+     ============================================================ */
   container.querySelector('#change-pin-btn').addEventListener('click', () => {
     const formHtml = `
       <h3 class="card-title no-border">🔑 تغيير الرقم السري</h3>
@@ -651,7 +775,9 @@ export function renderSettingsPage(container) {
     });
   });
 
-  // Export/Import
+  /* ============================================================
+     Export/Import
+     ============================================================ */
   container.querySelector('#export-btn').addEventListener('click', () => {
     const data = db.getStateCopy();
     const jsonString = JSON.stringify(data, null, 2);
@@ -688,7 +814,9 @@ export function renderSettingsPage(container) {
     e.target.value = '';
   });
 
-  // Reset
+  /* ============================================================
+     Reset
+     ============================================================ */
   container.querySelector('#reset-btn').addEventListener('click', () => {
     if (confirm('حذف كل البيانات؟ لا يمكن التراجع!')) {
       if (confirm('تأكيد أخير؟')) {
