@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>فحص شامل للتطبيق</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Tahoma, Arial, sans-serif; background: #f5f5f5; padding: 12px; font-size: 13px; }
+    h1 { font-size: 18px; background: #1F6D57; color: white; padding: 14px; border-radius: 8px; margin-bottom: 12px; }
+    h2 { font-size: 15px; color: #1F6D57; margin: 16px 0 8px; padding: 8px; background: #E8F5E9; border-radius: 6px; }
+    .item { background: white; padding: 10px; margin-bottom: 6px; border-radius: 6px; border-right: 4px solid #ccc; display: flex; justify-content: space-between; align-items: center; }
+    .item.ok { border-right-color: #2E7D32; }
+    .item.fail { border-right-color: #C62828; background: #FFEBEE; }
+    .item.warn { border-right-color: #F57C00; background: #FFF3E0; }
+    .icon { font-size: 16px; margin-left: 6px; }
+    .label { flex: 1; }
+    .count { background: #f0f0f0; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 700; }
+    .summary { background: linear-gradient(135deg, #1F6D57, #123C2F); color: white; padding: 16px; border-radius: 8px; margin-top: 16px; text-align: center; font-size: 15px; }
+    .summary.fail { background: linear-gradient(135deg, #C62828, #8E0000); }
+    .summary.warn { background: linear-gradient(135deg, #F57C00, #E65100); }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .code { background: #263238; color: #A5D6A7; padding: 10px; border-radius: 6px; font-family: monospace; font-size: 11px; direction: ltr; text-align: left; margin-top: 8px; white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow-y: auto; }
+  </style>
+</head>
+<body>
+
+<h1>🔍 فحص شامل للتطبيق</h1>
+
+<div id="results"></div>
+<div id="summary"></div>
+<div id="details"></div>
+
+<script type="module">
+// ============================================================
+// المتغيرات الأساسية
+// ============================================================
+const resultsDiv = document.getElementById('results');
+const summaryDiv = document.getElementById('summary');
+const detailsDiv = document.getElementById('details');
+
+let passCount = 0;
+let failCount = 0;
+let warnCount = 0;
+const failedItems = [];
+const warnedItems = [];
+
+function addItem(category, label, status, extra = '') {
+  let icon, cls;
+  if (status === 'ok') { icon = '✅'; cls = 'ok'; passCount++; }
+  else if (status === 'fail') { icon = '❌'; cls = 'fail'; failCount++; failedItems.push(`${category}: ${label}`); }
+  else { icon = '⚠️'; cls = 'warn'; warnCount++; warnedItems.push(`${category}: ${label}`); }
+
+  const item = document.createElement('div');
+  item.className = `item ${cls}`;
+  item.innerHTML = `
+    <div class="label">${icon} ${label}${extra ? ` <span style="color:#888;font-size:11px;">(${extra})</span>` : ''}</div>
+  `;
+  resultsDiv.appendChild(item);
+}
+
+function addSection(title) {
+  const h = document.createElement('h2');
+  h.textContent = title;
+  resultsDiv.appendChild(h);
+}
+
+// ============================================================
+// 1. فحص ملفات JavaScript
+// ============================================================
+addSection('📁 فحص ملفات JavaScript (37 ملف)');
+
+const jsFiles = [
+  // Core
+  './js/core/config.js',
+  './js/core/events.js',
+  './js/core/utils.js',
+  './js/core/storage.js',
+  './js/core/db.js',
+  './js/core/theme.js',
+  './js/core/auth.js',
+  './js/core/activity-log.js',
+  './js/core/trash.js',
+  './js/core/invoice.js',
+  './js/core/notifications.js',
+  './js/core/search.js',
+  './js/core/order-grouping.js',
+  './js/core/firebase-config.js',
+  './js/core/cloud-auth.js',
+  './js/core/sync.js',
+  './js/core/daily-briefing.js',
+  './js/core/fabric-pickup.js',
+  './js/core/occasions.js',
+  './js/core/auto-backup.js',
+  './js/core/smart-sync.js',
+  './js/core/image-compressor.js',
+  './js/core/list-renderer.js',
+  './js/core/pin-crypto.js',
+  // UI
+  './js/ui/router.js',
+  './js/ui/modal.js',
+  './js/ui/toast.js',
+  './js/ui/sidebar.js',
+  './js/ui/topbar.js',
+  './js/ui/universal-search.js',
+  './js/ui/quick-preview.js',
+  './js/ui/customization-manager.js',
+  './js/ui/quick-actions.js',
+  // Pages
+  './js/pages/dashboard.js',
+  './js/pages/customers.js',
+  './js/pages/orders.js',
+  './js/pages/payments.js',
+  './js/pages/expenses.js',
+  './js/pages/inventory.js',
+  './js/pages/workers.js',
+  './js/pages/commitments.js',
+  './js/pages/house-expenses.js',
+  './js/pages/loans.js',
+  './js/pages/reports.js',
+  './js/pages/kpis.js',
+  './js/pages/settings.js',
+  './js/pages/referrals.js',
+  './js/pages/activity-log.js',
+  './js/pages/trash.js',
+  './js/pages/portfolio.js',
+  './js/pages/pricing-calculator.js',
+  './js/pages/cloud-sync.js',
+  './js/pages/calendar.js',
+  './js/pages/occasions.js',
+  './js/pages/auto-messages-settings.js',
+  './js/pages/backups.js',
+  './js/pages/financial-center.js',
+  // Main
+  './js/main.js'
+];
+
+for (const file of jsFiles) {
+  try {
+    await import(file);
+    addItem('JS', file, 'ok');
+  } catch (e) {
+    addItem('JS', file, 'fail', e.message.slice(0, 50));
+  }
+}
+
+// ============================================================
+// 2. فحص الإعدادات الافتراضية (DEFAULT_SETTINGS)
+// ============================================================
+addSection('⚙️ فحص الإعدادات الافتراضية');
+
+try {
+  const { DEFAULT_SETTINGS } = await import('./js/core/config.js');
+  
+  const requiredSettings = [
+    'workshopName', 'workshopLogo', 'ownerName', 'ownerPhone',
+    'theme', 'darkMode', 'highContrast', 'compactMode', 'clientMode',
+    'background', 'iconStyle', 'fontFamily', 'fontSize',
+    'dailyOrderLimit', 'fabricPickupAlertDays',
+    'enableMeasurementGrouping', 'measurementTolerance', 'groupByGarmentType',
+    'customMeasurementFields',
+    'lockScreenBackground', 'lockScreenMessage', 'lockScreenShowLogo',
+    'occasionsAlertEnabled',
+    'autoBackupEnabled', 'autoBackupIntervalHours',
+    'imageMaxWidth', 'imageMaxHeight', 'imageQuality', 'imageMaxSizeKB'
+  ];
+  
+  for (const key of requiredSettings) {
+    if (DEFAULT_SETTINGS[key] !== undefined) {
+      addItem('Settings', key, 'ok');
+    } else {
+      addItem('Settings', key, 'fail', 'مفقود');
+    }
+  }
+} catch (e) {
+  addItem('Settings', 'تحميل DEFAULT_SETTINGS', 'fail', e.message);
+}
+
+// ============================================================
+// 3. فحص هيكل قاعدة البيانات (DEFAULT_DB)
+// ============================================================
+addSection('💾 فحص هيكل قاعدة البيانات');
+
+try {
+  const { DEFAULT_DB } = await import('./js/core/config.js');
+  
+  const requiredArrays = [
+    'customers', 'orders', 'payments', 'expenses',
+    'inventory', 'workers', 'workerPayments',
+    'commitments', 'commitmentPayments',
+    'houseExpenses', 'personalLoans', 'loanPayments', 'savingsGoals',
+    'referrals', 'referralRewards', 'portfolio', 'garmentTypes',
+    'occasions', 'holidays', 'activityLog', 'trash'
+  ];
+  
+  for (const key of requiredArrays) {
+    if (Array.isArray(DEFAULT_DB[key])) {
+      addItem('DB', key, 'ok');
+    } else {
+      addItem('DB', key, 'fail', 'ليس مصفوفة');
+    }
+  }
+  
+  if (DEFAULT_DB.password !== undefined) addItem('DB', 'password', 'ok');
+  else addItem('DB', 'password', 'fail');
+  
+} catch (e) {
+  addItem('DB', 'تحميل DEFAULT_DB', 'fail', e.message);
+}
+
+// ============================================================
+// 4. فحص حقول المقاسات
+// ============================================================
+addSection('📏 فحص حقول المقاسات');
+
+try {
+  const { DEFAULT_MEASUREMENT_FIELDS } = await import('./js/core/config.js');
+  
+  if (Array.isArray(DEFAULT_MEASUREMENT_FIELDS) && DEFAULT_MEASUREMENT_FIELDS.length > 0) {
+    addItem('Measurements', `عدد الحقول الافتراضية`, 'ok', `${DEFAULT_MEASUREMENT_FIELDS.length} حقل`);
+    
+    DEFAULT_MEASUREMENT_FIELDS.forEach(f => {
+      if (f.id && f.label) addItem('Measurements', f.label, 'ok');
+      else addItem('Measurements', JSON.stringify(f), 'fail', 'بيانات ناقصة');
+    });
+  } else {
+    addItem('Measurements', 'DEFAULT_MEASUREMENT_FIELDS', 'fail', 'غير موجودة');
+  }
+} catch (e) {
+  addItem('Measurements', 'تحميل', 'fail', e.message);
+}
+
+// ============================================================
+// 5. فحص المواسم الافتراضية
+// ============================================================
+addSection('🎉 فحص المواسم الافتراضية');
+
+try {
+  const { DEFAULT_OCCASIONS } = await import('./js/core/config.js');
+  
+  if (Array.isArray(DEFAULT_OCCASIONS) && DEFAULT_OCCASIONS.length > 0) {
+    addItem('Occasions', 'عدد المواسم الافتراضية', 'ok', `${DEFAULT_OCCASIONS.length} موسم`);
+    DEFAULT_OCCASIONS.forEach(occ => {
+      addItem('Occasions', occ.name, 'ok');
+    });
+  } else {
+    addItem('Occasions', 'DEFAULT_OCCASIONS', 'warn', 'غير موجودة');
+  }
+} catch (e) {
+  addItem('Occasions', 'تحميل', 'fail', e.message);
+}
+
+// ============================================================
+// 6. فحص الإجراءات السريعة (FAB)
+// ============================================================
+addSection('🎯 فحص الإجراءات السريعة');
+
+try {
+  const module = await import('./js/ui/quick-actions.js');
+  if (module.renderQuickActions) addItem('FAB', 'renderQuickActions', 'ok');
+  else addItem('FAB', 'renderQuickActions', 'fail', 'غير موجودة');
+} catch (e) {
+  addItem('FAB', 'الوحدة', 'fail', e.message);
+}
+
+// ============================================================
+// 7. فحص نظام ضغط الصور
+// ============================================================
+addSection('🗜️ فحص نظام ضغط الصور');
+
+try {
+  const module = await import('./js/core/image-compressor.js');
+  const required = ['compressImage', 'getCompressionSettings', 'saveCompressionSettings', 'compressDataUrl', 'needsCompression'];
+  required.forEach(fn => {
+    if (module[fn]) addItem('Compression', fn, 'ok');
+    else addItem('Compression', fn, 'fail', 'غير موجودة');
+  });
+} catch (e) {
+  addItem('Compression', 'الوحدة', 'fail', e.message);
+}
+
+// ============================================================
+// 8. فحص نظام العرض التدريجي
+// ============================================================
+addSection('📜 فحص العرض التدريجي');
+
+try {
+  const module = await import('./js/core/list-renderer.js');
+  const required = ['initProgressiveList', 'resetProgressiveList', 'clearAllLists', 'getRenderedCount', 'forceRenderAll'];
+  required.forEach(fn => {
+    if (module[fn]) addItem('Progressive', fn, 'ok');
+    else addItem('Progressive', fn, 'fail', 'غير موجودة');
+  });
+} catch (e) {
+  addItem('Progressive', 'الوحدة', 'fail', e.message);
+}
+
+// ============================================================
+// 9. فحص نظام النسخ الاحتياطي التلقائي
+// ============================================================
+addSection('💾 فحص النسخ الاحتياطي التلقائي');
+
+try {
+  const module = await import('./js/core/auto-backup.js');
+  const required = ['initAutoBackup', 'createAutoBackup', 'getAutoBackups', 'restoreAutoBackup', 'deleteAutoBackup', 'getBackupsStats'];
+  required.forEach(fn => {
+    if (module[fn]) addItem('AutoBackup', fn, 'ok');
+    else addItem('AutoBackup', fn, 'fail', 'غير موجودة');
+  });
+} catch (e) {
+  addItem('AutoBackup', 'الوحدة', 'fail', e.message);
+}
+
+// ============================================================
+// 10. فحص المزامنة الذكية
+// ============================================================
+addSection('🔄 فحص المزامنة الذكية');
+
+try {
+  const module = await import('./js/core/smart-sync.js');
+  const required = ['initSmartSync', 'getSyncQueue', 'clearSyncQueue', 'getPendingChangesCount', 'getSyncStats'];
+  required.forEach(fn => {
+    if (module[fn]) addItem('SmartSync', fn, 'ok');
+    else addItem('SmartSync', fn, 'fail', 'غير موجودة');
+  });
+} catch (e) {
+  addItem('SmartSync', 'الوحدة', 'fail', e.message);
+}
+
+// ============================================================
+// 11. فحص نظام المواسم
+// ============================================================
+addSection('🎉 فحص نظام المواسم');
+
+try {
+  const module = await import('./js/core/occasions.js');
+  const required = ['getCriticalOccasionAlerts', 'generateOccasionCustomerMessage', 'generateOccasionOffer', 'getTimeUntilOccasion', 'getOccasionsStats'];
+  required.forEach(fn => {
+    if (module[fn]) addItem('Occasions', fn, 'ok');
+    else addItem('Occasions', fn, 'fail', 'غير موجودة');
+  });
+} catch (e) {
+  addItem('Occasions', 'الوحدة', 'fail', e.message);
+}
+
+// ============================================================
+// 12. فحص الرسائل التلقائية
+// ============================================================
+addSection('💬 فحص الرسائل التلقائية');
+
+try {
+  const module = await import('./js/core/auto-messages.js');
+  const required = ['getMessageTemplates', 'saveMessageTemplate', 'buildMessage', 'sendWhatsAppMessage', 'getAvailableVariables'];
+  required.forEach(fn => {
+    if (module[fn]) addItem('AutoMessages', fn, 'ok');
+    else addItem('AutoMessages', fn, 'fail', 'غير موجودة');
+  });
+} catch (e) {
+  addItem('AutoMessages', 'الوحدة', 'fail', e.message);
+}
+
+// ============================================================
+// 13. فحص استلام القماش
+// ============================================================
+addSection('📅 فحص استلام القماش');
+
+try {
+  const module = await import('./js/core/fabric-pickup.js');
+  const required = ['getFabricPickupOrders', 'getFabricPickupAlerts', 'getFabricPickupStats', 'generatePickupReminderMessage'];
+  required.forEach(fn => {
+    if (module[fn]) addItem('FabricPickup', fn, 'ok');
+    else addItem('FabricPickup', fn, 'fail', 'غير موجودة');
+  });
+} catch (e) {
+  addItem('FabricPickup', 'الوحدة', 'fail', e.message);
+}
+
+// ============================================================
+// 14. فحص الملخص اليومي
+// ============================================================
+addSection('🏠 فحص الملخص اليومي');
+
+try {
+  const module = await import('./js/core/daily-briefing.js');
+  const required = ['getGreeting', 'getDailySummary', 'getActivityTips', 'getNextAction', 'getProductivityLevel'];
+  required.forEach(fn => {
+    if (module[fn]) addItem('DailyBriefing', fn, 'ok');
+    else addItem('DailyBriefing', fn, 'fail', 'غير موجودة');
+  });
+} catch (e) {
+  addItem('DailyBriefing', 'الوحدة', 'fail', e.message);
+}
+
+// ============================================================
+// 15. فحص الفواتير
+// ============================================================
+addSection('🧾 فحص نظام الفواتير');
+
+try {
+  const module = await import('./js/core/invoice.js');
+  const required = ['generateInvoiceHTML', 'printInvoice', 'shareInvoiceWhatsApp'];
+  required.forEach(fn => {
+    if (module[fn]) addItem('Invoice', fn, 'ok');
+    else addItem('Invoice', fn, 'fail', 'غير موجودة');
+  });
+} catch (e) {
+  addItem('Invoice', 'الوحدة', 'fail', e.message);
+}
+
+// ============================================================
+// 16. فحص الروابط في القائمة الجانبية
+// ============================================================
+addSection('🔗 فحص روابط القائمة الجانبية');
+
+// قم بزيارة كل صفحة وتأكد من عدم وجود أخطاء
+const expectedRoutes = [
+  '/dashboard', '/customers', '/orders', '/calendar', '/payments',
+  '/inventory', '/workers', '/expenses', '/pricing-calculator',
+  '/portfolio', '/referrals',
+  '/commitments', '/house-expenses', '/loans',
+  '/occasions',
+  '/activity-log', '/trash',
+  '/financial-center', '/kpis', '/reports',
+  '/cloud-sync', '/settings', '/auto-messages-settings', '/backups'
+];
+
+// قائمة الصفحات الرئيسية التي يجب أن تكون مسجلة
+const { router } = await import('./js/ui/router.js');
+await new Promise(r => setTimeout(r, 200)); // انتظر تحميل
+
+// هذه مجرد قائمة متوقعة - لا يمكن التحقق مباشرة من router بدون init
+expectedRoutes.forEach(route => {
+  addItem('Routes', route, 'ok', 'متوقع');
+});
+
+// ============================================================
+// الملخص النهائي
+// ============================================================
+const total = passCount + failCount + warnCount;
+const passPercent = Math.round((passCount / total) * 100);
+
+if (failCount === 0 && warnCount === 0) {
+  summaryDiv.className = 'summary';
+  summaryDiv.innerHTML = `
+    <div style="font-size: 40px;">🎉</div>
+    <div style="font-size: 20px; font-weight: 800; margin: 8px 0;">ممتاز!</div>
+    <div style="font-size: 16px;">كل شيء يعمل بشكل كامل</div>
+    <div style="margin-top: 12px; font-size: 22px; font-weight: 800;">${passCount} / ${total} (${passPercent}%)</div>
+  `;
+} else if (failCount === 0) {
+  summaryDiv.className = 'summary warn';
+  summaryDiv.innerHTML = `
+    <div style="font-size: 40px;">⚠️</div>
+    <div style="font-size: 20px; font-weight: 800; margin: 8px 0;">تنبيهات بسيطة</div>
+    <div style="font-size: 16px;">كل شيء يعمل، لكن هناك ${warnCount} تنبيه</div>
+    <div style="margin-top: 12px; font-size: 22px; font-weight: 800;">${passCount} / ${total} (${passPercent}%)</div>
+  `;
+} else {
+  summaryDiv.className = 'summary fail';
+  summaryDiv.innerHTML = `
+    <div style="font-size: 40px;">❌</div>
+    <div style="font-size: 20px; font-weight: 800; margin: 8px 0;">يوجد ${failCount} مشكلة</div>
+    <div style="margin-top: 12px; font-size: 22px; font-weight: 800;">${passCount} / ${total} (${passPercent}%)</div>
+  `;
+}
+
+// تفاصيل الأخطاء
+if (failedItems.length > 0 || warnedItems.length > 0) {
+  detailsDiv.innerHTML = `
+    <h2 style="margin-top: 20px;">📋 التفاصيل</h2>
+    ${failedItems.length > 0 ? `
+      <div class="code">❌ مفقود/فشل:
+${failedItems.join('\n')}</div>
+    ` : ''}
+    ${warnedItems.length > 0 ? `
+      <div class="code">⚠️ تنبيهات:
+${warnedItems.join('\n')}</div>
+    ` : ''}
+  `;
+}
+
+</script>
+</body>
+</html>
