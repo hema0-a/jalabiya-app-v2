@@ -253,11 +253,15 @@ if (document.readyState === 'loading') {
 } else {
   init();
 }
-
-window.addEventListener('beforeunload', () => {
-  try {
-    if (navigator.onLine && isSignedIn()) syncNow();
-  } catch (e) { /* ignore */ }
+// ✅ المزامنة عند إخفاء الصفحة (أكثر موثوقية من beforeunload)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    try {
+      if (navigator.onLine && isSignedIn()) {
+        syncNow();
+      }
+    } catch (e) { /* ignore */ }
+  }
 });
 
 if ('serviceWorker' in navigator) {
