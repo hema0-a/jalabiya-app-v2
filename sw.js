@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jalabiya-v2-cache-1';
+const CACHE_NAME = 'jalabiya-v2-cache-2';
 const CORE_ASSETS = [
   'index.html',
   'manifest.json',
