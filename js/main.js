@@ -1,6 +1,6 @@
 /* ============================================================
    main.js - نقطة الدخول الرئيسية (V2)
-   (النسخة الكاملة: المواسم + الرسائل التلقائية + استلام القماش)
+   (النسخة النهائية الشاملة مع كل الميزات)
    ============================================================ */
 
 import { APP_CONFIG } from './core/config.js';
@@ -20,6 +20,8 @@ import { initSearchShortcut } from './ui/universal-search.js';
 import { initSync, syncNow } from './core/sync.js';
 import { isSignedIn } from './core/cloud-auth.js';
 import { renderQuickActions } from './ui/quick-actions.js';
+import { initAutoBackup } from './core/auto-backup.js';
+import { initSmartSync, cleanOldQueueChanges } from './core/smart-sync.js';
 
 // استيراد الصفحات - العمليات
 import { renderDashboardPage } from './pages/dashboard.js';
@@ -43,7 +45,7 @@ import { renderCommitmentsPage } from './pages/commitments.js';
 import { renderHouseExpensesPage } from './pages/house-expenses.js';
 import { renderLoansPage } from './pages/loans.js';
 
-// استيراد الصفحات - المواسم والأعياد
+// استيراد الصفحات - المواسم
 import { renderOccasionsPage } from './pages/occasions.js';
 
 // استيراد الصفحات - النظام
@@ -57,6 +59,7 @@ import { renderReportsPage } from './pages/reports.js';
 import { renderCloudSyncPage } from './pages/cloud-sync.js';
 import { renderSettingsPage } from './pages/settings.js';
 import { renderAutoMessagesSettingsPage } from './pages/auto-messages-settings.js';
+import { renderBackupsPage } from './pages/backups.js';
 
 console.log(`🚀 ${APP_CONFIG.name} v${APP_CONFIG.version}`);
 
@@ -71,11 +74,17 @@ async function init() {
     console.log('📜 تفعيل سجل النشاط التلقائي...');
     initActivityLogger();
 
+    console.log('🔄 تفعيل المزامنة الذكية...');
+    initSmartSync();
+
     console.log('🧹 تنظيف سلة المحذوفات...');
     const removedCount = cleanOldTrashItems();
     if (removedCount > 0) {
       console.log(`   تم حذف ${removedCount} عنصر قديم`);
     }
+
+    console.log('🧹 تنظيف Queue المزامنة...');
+    cleanOldQueueChanges(48);
 
     console.log('🎨 تحميل الألوان وأوضاع العرض...');
     loadTheme();
@@ -83,6 +92,9 @@ async function init() {
     console.log('🎨 تهيئة الواجهة...');
     initToast();
     initModal();
+
+    console.log('💾 تفعيل النسخ الاحتياطي التلقائي...');
+    initAutoBackup();
 
     console.log('🔒 تهيئة نظام القفل...');
     const isUnlocked = initAuth();
@@ -109,10 +121,6 @@ async function init() {
 function startApp() {
   renderAppLayout();
 
-  // ============================================================
-  // تسجيل جميع الصفحات في الراوتر
-  // ============================================================
-
   // العمليات
   router.register('/dashboard', renderDashboardPage);
   router.register('/customers', renderCustomersPage);
@@ -135,7 +143,7 @@ function startApp() {
   router.register('/house-expenses', renderHouseExpensesPage);
   router.register('/loans', renderLoansPage);
 
-  // المواسم والأعياد
+  // المواسم
   router.register('/occasions', renderOccasionsPage);
 
   // النظام
@@ -149,32 +157,33 @@ function startApp() {
   router.register('/cloud-sync', renderCloudSyncPage);
   router.register('/settings', renderSettingsPage);
   router.register('/auto-messages-settings', renderAutoMessagesSettingsPage);
+  router.register('/backups', renderBackupsPage);
 
   // تشغيل الراوتر
   router.init('.main-content');
 
-  // تفعيل اختصار البحث Ctrl+K
+  // اختصار البحث
   initSearchShortcut();
 
-  // إضافة زر الإجراءات السريعة
+  // زر الإجراءات السريعة
   renderQuickActions();
 
-  // بدء مؤقت القفل التلقائي
+  // مؤقت القفل التلقائي
   startIdleTimer();
 
-  // إغلاق القائمة الجانبية عند تغيير الصفحة
+  // إغلاق القائمة الجانبية عند التغيير
   events.on(EVENTS.PAGE_CHANGED, () => {
     closeSidebar();
   });
 
   console.log('✅ التطبيق جاهز');
 
-  // عرض إشعارات المواعيد
+  // إشعارات المواعيد
   setTimeout(() => {
     showDueOrdersNotification();
   }, 1000);
 
-  // تفعيل المزامنة السحابية
+  // المزامنة السحابية
   setupCloudSync();
 }
 
@@ -198,7 +207,7 @@ function setupCloudSync() {
 }
 
 /* ============================================================
-   بناء الهيكل الأساسي للتطبيق
+   بناء الهيكل الأساسي
    ============================================================ */
 function renderAppLayout() {
   const app = document.getElementById('app');
@@ -239,27 +248,18 @@ function showError(e) {
   `;
 }
 
-/* ============================================================
-   بدء التطبيق عند تحميل الصفحة
-   ============================================================ */
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', init);
 } else {
   init();
 }
 
-/* ============================================================
-   محاولة مزامنة أخيرة عند إغلاق الصفحة
-   ============================================================ */
 window.addEventListener('beforeunload', () => {
   try {
     if (navigator.onLine && isSignedIn()) syncNow();
   } catch (e) { /* ignore */ }
 });
 
-/* ============================================================
-   تسجيل Service Worker (PWA)
-   ============================================================ */
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js', { scope: './' })
