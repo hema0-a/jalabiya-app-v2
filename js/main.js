@@ -17,6 +17,7 @@ import { initActivityLogger } from './core/activity-log.js';
 import { cleanOldTrashItems } from './core/trash.js';
 import { showDueOrdersNotification } from './core/notifications.js';
 import { initSearchShortcut } from './ui/universal-search.js';
+import { renderQuickActions } from './ui/quick-actions.js';
 import { initSync, syncNow } from './core/sync.js';
 import { isSignedIn, waitForAuthReady } from './core/cloud-auth.js';
 
@@ -103,6 +104,8 @@ async function init() {
    ============================================================ */
 function startApp() {
   renderAppLayout();
+   // إضافة زر الإجراءات السريعة
+renderQuickActions();
 
   // ============================================================
   // تسجيل جميع الصفحات في الراوتر
