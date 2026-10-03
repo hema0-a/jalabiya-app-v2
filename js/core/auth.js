@@ -1,6 +1,6 @@
 /* ============================================================
    auth.js - نظام القفل والتحقق (V2)
-   (يدير قفل التطبيق بـ PIN + القفل التلقائي + الجلسة)
+   (مُحدَّث: Rate Limiting دائم + شاشة قفل مخصصة)
    ============================================================ */
 
 import { APP_CONFIG, DEFAULT_DB, DEFAULT_SETTINGS } from './config.js';
@@ -10,50 +10,114 @@ import { events, EVENTS } from './events.js';
 /* ============================================================
    حالة النظام (State)
    ============================================================ */
-let failedAttempts = 0;
-let lockUntil = 0;
 let idleTimer = null;
 let isLocked = true;
+
+/* ============================================================
+   Rate Limiting - مخزّن بشكل دائم (لا يُمسح بإعادة التحميل)
+   ============================================================ */
+const FAILED_ATTEMPTS_KEY = 'jalabiya_v2_failed_attempts';
+
+function loadFailedAttempts() {
+  try {
+    const raw = localStorage.getItem(FAILED_ATTEMPTS_KEY);
+    if (!raw) return { count: 0, until: 0, timestamp: 0 };
+    const data = JSON.parse(raw);
+    // نسيان المحاولات بعد 24 ساعة
+    if (data.timestamp && Date.now() - data.timestamp > 86400000) {
+      localStorage.removeItem(FAILED_ATTEMPTS_KEY);
+      return { count: 0, until: 0, timestamp: 0 };
+    }
+    return data;
+  } catch (e) {
+    return { count: 0, until: 0, timestamp: 0 };
+  }
+}
+
+function saveFailedAttempts(count, until = 0) {
+  try {
+    localStorage.setItem(FAILED_ATTEMPTS_KEY, JSON.stringify({
+      count,
+      until,
+      timestamp: Date.now()
+    }));
+  } catch (e) {
+    console.warn('⚠️ [Auth] فشل حفظ المحاولات:', e);
+  }
+}
+
+function clearFailedAttempts() {
+  try {
+    localStorage.removeItem(FAILED_ATTEMPTS_KEY);
+  } catch (e) { /* ignore */ }
+}
 
 /* ============================================================
    دوال التحقق من PIN
    ============================================================ */
 
 export function verifyPin(inputPin) {
-  if (Date.now() < lockUntil) {
-    const remaining = Math.ceil((lockUntil - Date.now()) / 1000);
-    return { success: false, message: `محظور مؤقتاً. انتظر ${remaining} ثانية` };
+  const attemptData = loadFailedAttempts();
+
+  // 1. التحقق من وجود حظر مؤقت
+  if (attemptData.until && Date.now() < attemptData.until) {
+    const remaining = Math.ceil((attemptData.until - Date.now()) / 1000);
+    return {
+      success: false,
+      message: `محظور مؤقتاً. انتظر ${remaining} ثانية`
+    };
   }
 
+  // 2. التحقق من صيغة PIN (4 أرقام)
   if (!/^\d{4}$/.test(String(inputPin))) {
-    return { success: false, message: 'الرقم السري يجب أن يكون 4 أرقام' };
+    return {
+      success: false,
+      message: 'الرقم السري يجب أن يكون 4 أرقام'
+    };
   }
 
+  // 3. جلب PIN الصحيح من قاعدة البيانات
   const db = storage.loadDB() || { ...DEFAULT_DB };
   const correctPin = db.password || DEFAULT_DB.password;
 
+  // 4. مقارنة PIN
   if (String(inputPin) === String(correctPin)) {
-    failedAttempts = 0;
-    lockUntil = 0;
+    clearFailedAttempts();
     saveSession(true);
     return { success: true, message: 'تم الدخول بنجاح' };
   } else {
-    failedAttempts++;
-    if (failedAttempts >= APP_CONFIG.maxPinAttempts) {
-      lockUntil = Date.now() + (APP_CONFIG.pinLockSeconds * 1000);
-      failedAttempts = 0;
-      return { success: false, message: `محاولات كثيرة خاطئة! انتظر ${APP_CONFIG.pinLockSeconds} ثانية` };
+    const newCount = (attemptData.count || 0) + 1;
+
+    if (newCount >= APP_CONFIG.maxPinAttempts) {
+      const lockUntil = Date.now() + (APP_CONFIG.pinLockSeconds * 1000);
+      saveFailedAttempts(0, lockUntil);
+      return {
+        success: false,
+        message: `محاولات كثيرة خاطئة! انتظر ${APP_CONFIG.pinLockSeconds} ثانية`
+      };
     }
-    return { success: false, message: `رقم خاطئ. تبقى ${APP_CONFIG.maxPinAttempts - failedAttempts} محاولات` };
+
+    saveFailedAttempts(newCount);
+    return {
+      success: false,
+      message: `رقم خاطئ. تبقى ${APP_CONFIG.maxPinAttempts - newCount} محاولات`
+    };
   }
 }
 
+/**
+ * تغيير الـ PIN
+ * @param {string} newPin - الرقم الجديد (4 أرقام)
+ * @returns {boolean} نجاح العملية
+ */
 export function changePin(newPin) {
   if (!/^\d{4}$/.test(String(newPin))) return false;
+
   const db = storage.loadDB() || { ...DEFAULT_DB };
   db.password = String(newPin);
   db.updatedAt = Date.now();
   storage.saveDB(db);
+  clearFailedAttempts();
   return true;
 }
 
@@ -62,18 +126,23 @@ export function changePin(newPin) {
    ============================================================ */
 
 function saveSession(unlocked) {
-  storage.saveSession({ unlocked: unlocked, timestamp: Date.now() });
+  storage.saveSession({
+    unlocked: unlocked,
+    timestamp: Date.now()
+  });
   isLocked = !unlocked;
 }
 
 export function checkSession() {
   const session = storage.loadSession();
   if (!session) return false;
+
   const ONE_DAY = 24 * 60 * 60 * 1000;
   if (session.unlocked && (Date.now() - session.timestamp) < ONE_DAY) {
     isLocked = false;
     return true;
   }
+
   return false;
 }
 
@@ -104,6 +173,7 @@ export function getIsLocked() {
 
 export function startIdleTimer() {
   resetIdleTimer();
+
   const activityEvents = ['click', 'touchstart', 'keydown', 'scroll', 'mousemove'];
   activityEvents.forEach(eventName => {
     document.addEventListener(eventName, resetIdleTimer, { passive: true });
@@ -112,8 +182,11 @@ export function startIdleTimer() {
 
 function resetIdleTimer() {
   if (idleTimer) clearTimeout(idleTimer);
+
   const idleMs = APP_CONFIG.idleLockMinutes * 60 * 1000;
-  idleTimer = setTimeout(() => { lock(); }, idleMs);
+  idleTimer = setTimeout(() => {
+    lock();
+  }, idleMs);
 }
 
 export function stopIdleTimer() {
@@ -260,6 +333,7 @@ export function initAuth() {
     startIdleTimer();
     return true;
   }
+
   isLocked = true;
   renderLockScreen();
   return false;
